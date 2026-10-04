@@ -1,0 +1,16 @@
+# Local-only project documents (kept by each developer, never committed)
+docs/
+dev_plans/
+
+# Build output
+build/
+build-*/
+
+# Qt Creator / CMake local settings
+*.user
+*.user.*
+CMakeUserPresets.json
+
+# Stray tool artifacts
+package-lock.json
+excalidraw.log
