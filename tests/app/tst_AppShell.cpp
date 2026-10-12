@@ -27,14 +27,11 @@ void AppShellTest::apiVersionIsExpected() {
 void AppShellTest::setupDialogShowsPresets() {
     ubahn::app::SetupDialog dialog;
     auto* combo = dialog.findChild<QComboBox*>("presetCombo");
-    auto* version = dialog.findChild<QLabel*>("apiVersionLabel");
 
     QVERIFY(combo != nullptr);
     QCOMPARE(combo->count(), 3);
     QCOMPARE(combo->currentIndex(), 0);
     QCOMPARE(dialog.selectedParams().line.stationNames.size(), std::size_t{8});
-    QVERIFY(version != nullptr);
-    QVERIFY(version->text().contains("0.1.0"));
 }
 
 void AppShellTest::setupDialogAcceptsSelection() {

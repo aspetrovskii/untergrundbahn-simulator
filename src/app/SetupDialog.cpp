@@ -1,7 +1,6 @@
 #include "SetupDialog.h"
 
 #include "api/Functions.h"
-#include "api/Version.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -31,13 +30,6 @@ SetupDialog::SetupDialog(QWidget* parent) : QDialog(parent), presets_(api::built
     auto* form = new QFormLayout;
     form->addRow(tr("Пресет:"), presetCombo_);
 
-    auto* apiVersion = new QLabel(tr("Версия API: %1.%2.%3")
-                                      .arg(api::kApiVersionMajor)
-                                      .arg(api::kApiVersionMinor)
-                                      .arg(api::kApiVersionPatch),
-                                  this);
-    apiVersion->setObjectName("apiVersionLabel");
-
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
     auto* startButton = buttons->addButton(tr("Открыть симуляцию"), QDialogButtonBox::AcceptRole);
     startButton->setObjectName("startButton");
@@ -47,7 +39,6 @@ SetupDialog::SetupDialog(QWidget* parent) : QDialog(parent), presets_(api::built
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(intro);
     layout->addLayout(form);
-    layout->addWidget(apiVersion);
     layout->addStretch();
     layout->addWidget(buttons);
 }
