@@ -59,107 +59,6 @@ api::Warning noTrainWarning(api::Term term, api::SimTime slot) {
     return warning;
 }
 
-// ALGORITHM 5.1. Used only when buildTrip is still the BE-05 stub (empty plan).
-void fillPlan(Trip& trip, const Line& line) {
-    const int n = std::max(line.n, 1);
-    trip.aPlan.assign(static_cast<std::size_t>(n), trip.slot);
-    trip.dPlan.assign(static_cast<std::size_t>(n), trip.slot);
-    if (line.n < 2) {
-        return;
-    }
-    trip.dPlan[0] = trip.slot;
-    for (int pos = 0; pos <= line.n - 2; ++pos) {
-        const api::SimTime arrival =
-            trip.dPlan[static_cast<std::size_t>(pos)] + spanOf(line, trip.dir, pos).tStd;
-        trip.aPlan[static_cast<std::size_t>(pos + 1)] = arrival;
-        trip.dPlan[static_cast<std::size_t>(pos + 1)] = arrival + trip.dwellPlan;
-    }
-}
-
-bool planMissing(const Trip& trip, const Line& line) {
-    const std::size_t n = static_cast<std::size_t>(std::max(line.n, 1));
-    return trip.aPlan.size() != n || trip.dPlan.size() != n;
-}
-
-const std::vector<api::Window>* dayWindows(const api::ScheduleConfig& schedule, int64_t day) {
-    const int dow = static_cast<int>(floorMod(day, 7));
-    return &schedule.days[static_cast<std::size_t>(dow)].windows;
-}
-
-// ALGORITHM 10.1, BE-05 details. dayStart + open/close minus tToTerm of the edge window.
-api::SimTime slotBound(const Line& line, const api::ScheduleConfig& schedule, int64_t day,
-                       bool first) {
-    const std::vector<api::Window>* windows = dayWindows(schedule, day);
-    if (windows == nullptr || windows->empty()) {
-        return 0;
-    }
-    const int32_t dwell = first ? windows->front().dwell : windows->back().dwell;
-    const api::SimTime midnight = day * static_cast<api::SimTime>(api::kSecondsPerDay);
-    const api::SimTime anchor = first ? midnight + api::kOpenTod : midnight + api::kCloseTod;
-    return anchor - tToTerm(line, dwell);
-}
-
-// TODO(BE-12): generateSlots (BE-05) still returns an empty vector and does not move the
-// cursor. This copies ALGORITHM 10.1 / the BE-05 card so the horizon can be filled. A live
-// generateSlots either returns trips or advances the cursor, and then this is not called.
-std::vector<Trip> materialiseLocal(SlotCursor& cursor, const Line& line,
-                                   const api::ScheduleConfig& schedule,
-                                   const api::ScheduleAnalysis& analysis, api::Dir dir,
-                                   api::SimTime horizon, int32_t& nextTripId) {
-    std::vector<Trip> made;
-    for (int guard = 0; guard < 100000 && cursor.nextSlotTime <= horizon; ++guard) {
-        const int64_t day = dayIndex(cursor.nextSlotTime);
-        const std::vector<api::Window>* windows = dayWindows(schedule, day);
-        if (windows == nullptr || windows->empty()) {
-            break;
-        }
-        const api::SimTime first = slotBound(line, schedule, day, true);
-        const api::SimTime last = slotBound(line, schedule, day, false);
-        if (cursor.nextSlotTime > last) {
-            const std::vector<api::Window>* nextWindows = dayWindows(schedule, day + 1);
-            if (nextWindows == nullptr || nextWindows->empty()) {
-                break;
-            }
-            cursor.nextSlotTime = slotBound(line, schedule, day + 1, true);
-            continue;
-        }
-        api::SimTime slot = cursor.nextSlotTime;
-        if (slot < first) {
-            slot = first;
-        }
-        // BE-05: the horizon is not exceeded. Leave the cursor on the snapped slot.
-        if (slot > horizon) {
-            cursor.nextSlotTime = slot;
-            break;
-        }
-        const api::SimTime open =
-            day * static_cast<api::SimTime>(api::kSecondsPerDay) + api::kOpenTod;
-        const api::SimTime windowTime = std::max(slot, open);
-        const api::Window* window = windowAt(schedule, windowTime);
-        if (window == nullptr) {
-            break;
-        }
-        const int32_t step = hEffAt(analysis, schedule, windowTime);
-        if (step <= 0) {
-            // A zero step would spin. The schedule is invalid; stop materialising.
-            break;
-        }
-        Trip trip = buildTrip(line, nextTripId, dir, slot, window->dwell);
-        trip.id = nextTripId;
-        trip.dir = dir;
-        trip.slot = slot;
-        trip.dwellPlan = window->dwell;
-        trip.trainId = -1;
-        if (planMissing(trip, line)) {
-            fillPlan(trip, line);
-        }
-        ++nextTripId;
-        cursor.nextSlotTime = slot + step;
-        made.push_back(std::move(trip));
-    }
-    return made;
-}
-
 void enqueueSlot(Terminal& term, const EngineState& state, int32_t id) {
     if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
         return;
@@ -196,16 +95,8 @@ void ensureSlots(EngineState& state, api::Term term, api::SimTime now) {
     Terminal& terminal = state.terms[static_cast<std::size_t>(term)];
     const api::Dir dir = departureDir(term);
     const api::SimTime horizon = horizonAt(state, now);
-    const api::SimTime cursorBefore = terminal.cursor.nextSlotTime;
-    const int32_t idBefore = state.nextTripId;
     std::vector<Trip> made = generateSlots(terminal.cursor, state.line, state.schedule,
                                            state.analysis, dir, horizon, state.nextTripId);
-    // Empty and untouched means the BE-05 stub, not "nothing left to generate".
-    if (made.empty() && terminal.cursor.nextSlotTime == cursorBefore &&
-        state.nextTripId == idBefore && cursorBefore <= horizon) {
-        made = materialiseLocal(terminal.cursor, state.line, state.schedule, state.analysis, dir,
-                                horizon, state.nextTripId);
-    }
     for (Trip& trip : made) {
         storeTrip(state, terminal, std::move(trip));
     }
@@ -235,6 +126,22 @@ bool turnaroundMakesIt(const EngineState& state, int train, api::Term term, api:
         return false;
     }
     return readiness(state, train, term) <= slot - state.line.cfg.dwellMin;
+}
+
+// A holder already on the departure platform keeps its slot even when it arrived late: the
+// platform is occupied, so a depot train cannot depart before it, and moving the holder to a
+// later slot would break the slot order on the platform (ALGORITHM 6.3, 10.2).
+// TODO(BE-17): ALGORITHM 10.2 read literally (readyAt = aAct > slot - dwellMin) hands this
+// slot to the depot; confirm that a train standing on the platform counts as covered.
+bool holderCovers(const EngineState& state, int holder, api::Term term, api::SimTime slot) {
+    if (holder < 0 || holder >= static_cast<int>(state.trains.size())) {
+        return false;
+    }
+    const Train& train = state.trains[static_cast<std::size_t>(holder)];
+    if (issuedFromDepot(train) || train.state == TrainState::WaitingSlot) {
+        return true;
+    }
+    return turnaroundMakesIt(state, holder, term, slot);
 }
 
 void bindTrain(EngineState& state, Trip& trip, int train) {
@@ -280,6 +187,9 @@ void shiftOntoFollowing(EngineState& state, Terminal& term, std::size_t index, i
         train = holder;
         ++index;
     }
+    // The queue ended before an unassigned slot. The last holder lost its trip and must be
+    // recomputed (an issued depot train with no trip has no event, principle 1).
+    dirty.push(train);
 }
 
 bool sameStretch(const api::Warning& lhs, const api::Warning& rhs) {
@@ -346,15 +256,7 @@ api::SimTime earliestUncovered(const EngineState& state, api::Term term) {
             continue;
         }
         const Trip& trip = state.trips[static_cast<std::size_t>(id)];
-        bool covered = false;
-        if (trip.trainId >= 0 && trip.trainId < static_cast<int>(state.trains.size())) {
-            const Train& holder = state.trains[static_cast<std::size_t>(trip.trainId)];
-            if (issuedFromDepot(holder) ||
-                turnaroundMakesIt(state, trip.trainId, term, trip.slot)) {
-                covered = true;
-            }
-        }
-        if (covered) {
+        if (holderCovers(state, trip.trainId, term, trip.slot)) {
             continue;
         }
         if (!found || trip.slot < earliest) {
@@ -409,11 +311,7 @@ void handleDispatcher(EngineState& state, api::Term term, api::SimTime now, Dirt
             break;
         }
         const int holder = trip.trainId;
-        if (holder >= 0 && holder < static_cast<int>(state.trains.size()) &&
-            issuedFromDepot(state.trains[static_cast<std::size_t>(holder)])) {
-            continue;
-        }
-        if (holder >= 0 && turnaroundMakesIt(state, holder, term, trip.slot)) {
+        if (holderCovers(state, holder, term, trip.slot)) {
             continue;
         }
         if (terminal.depot.empty()) {
