@@ -451,7 +451,9 @@ void onLeaveToDeadEnd(EngineState& state, int index, api::SimTime now, DirtySet&
 
     const int behindBefore = behind(state, index);
     const int dirIndex = static_cast<int>(train.dir);
-    const int32_t shift = planShiftAt(tripOf(state, index), train.pos, now);
+    // Waiting past the end of alighting for the dead end is waiting for the next departure
+    // slot (the dead end is held by the train ahead until its slot), not lateness.
+    const int32_t shift = planShiftAt(tripOf(state, index), train.pos, std::min(now, train.dBase));
     if (train.pos >= 0 &&
         train.pos < static_cast<int>(state.platforms[static_cast<std::size_t>(dirIndex)].size())) {
         releasePlatform(platformAt(state, dirIndex, train.pos), index, now, train.aAct, shift);

@@ -100,6 +100,7 @@ private slots:
     void reachSignalStops();
     void followerSignalStopsBehindLeader();
     void originWaitIsNotCatchUp();
+    void deadEndWaitIsNotLateness();
     void turnaroundChain();
     void depotChain();
     void leaveDepotOffHoursFollowsClock();
@@ -393,6 +394,33 @@ void TrainEventsTest::originWaitIsNotCatchUp() {
     ubahn::core::applyReschedule(state, 0, NextEvent{EventType::Depart, slot, true}, state.now);
     QVERIFY(!state.trains[0].flags.catchingUp);
     QVERIFY(!state.trains[0].flags.held);
+}
+
+void TrainEventsTest::deadEndWaitIsNotLateness() {
+    const int last = serviceState(0).line.n - 1;
+    for (const bool lateAlighting : {false, true}) {
+        EngineState state = serviceState(0);
+        const SimTime now = state.now;
+        pullOut(state, 0);
+        placeAtPlatform(state, 0, Dir::I, last);
+        trackPushBack(state, Dir::I, 0);
+        ubahn::core::Trip& trip = addTrip(state, Dir::I, now - 2000, 60);
+        trip.dPlan[static_cast<std::size_t>(last)] = now - 15;
+        trip.trainId = 0;
+        state.trains[0].tripId = trip.id;
+        // Alighting ended on plan and the train then waited 15 s for the dead end, or the
+        // alighting itself ended 15 s late.
+        state.trains[0].dBase = lateAlighting ? now : now - 15;
+
+        arm(state, 0, EventType::LeaveToDeadEnd, now);
+        DirtySet dirty = dirtyFor(state);
+        handleTrain(state, 0, now, dirty);
+
+        QCOMPARE(state.trains[0].state, TrainState::ToDeadEnd);
+        const int32_t expected = lateAlighting ? 15 : 0;
+        QCOMPARE(state.trains[0].lateness, expected);
+        QCOMPARE(platformAt(state, static_cast<int>(Dir::I), last).lastShift, expected);
+    }
 }
 
 void TrainEventsTest::turnaroundChain() {
