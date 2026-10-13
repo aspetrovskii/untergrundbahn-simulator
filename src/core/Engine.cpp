@@ -11,6 +11,7 @@
 #include "core/Trips.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <limits>
 #include <vector>
 
@@ -272,7 +273,14 @@ void scheduleInitial(EngineState& state, const Handlers& handlers) {
 void checkInvariants(const EngineState& state) {
     // Event-local checks are called by TrainEvents. This handler is the whole-state pass.
     if constexpr (kCheckInvariants) {
-        UBAHN_ASSERT(checkState(state).empty(), "checkState");
+        const std::vector<std::string> violations = checkState(state);
+        if (!violations.empty()) {
+            std::fprintf(stderr, "checkState now=%lld\n", static_cast<long long>(state.now));
+            for (const std::string& line : violations) {
+                std::fprintf(stderr, "  %s\n", line.c_str());
+            }
+        }
+        UBAHN_ASSERT(violations.empty(), "checkState");
     } else {
         static_cast<void>(state);
     }
@@ -369,19 +377,119 @@ bool runCascade(EngineState& state, DirtySet& dirty, api::SimTime now, const Han
 
 namespace {
 
+// Test doubles may echo the popped event. That pop is consumption (ALGORITHM 6.2).
+// The real predictor stays on the same instant only when the event was rejected
+// because a later event of this second still holds the resource (ALGORITHM 7.6).
+bool realPredictor(const Handlers& handlers, int owner, int fleet) {
+    const Handlers& real = defaultHandlers();
+    if (owner >= 0 && owner < fleet) {
+        return handlers.computeNext == real.computeNext;
+    }
+    if (owner == dispatcherOwner(fleet, api::Term::A) ||
+        owner == dispatcherOwner(fleet, api::Term::B)) {
+        return handlers.dispatcherNext == real.dispatcherNext;
+    }
+    if (owner == calendarOwner(fleet)) {
+        return handlers.calendarNext == real.calendarNext;
+    }
+    return false;
+}
+
+enum class Flush : uint8_t { None, Inserted, Stuck };
+
+// A rejected event was popped and computeNext did not move it, so the heap entry is
+// gone. Put it back once, after movement of this second, so the freeing event can run
+// first. A second rejection is a deadlock: the caller stops the instant.
+Flush flushDeferred(EngineState& state, std::vector<char>& deferred, std::vector<char>& retried) {
+    bool inserted = false;
+    const int owners = static_cast<int>(deferred.size());
+    for (int id = 0; id < owners; ++id) {
+        if (deferred[static_cast<std::size_t>(id)] == 0) {
+            continue;
+        }
+        deferred[static_cast<std::size_t>(id)] = 0;
+        if (state.heap.contains(id)) {
+            continue;
+        }
+        if (retried[static_cast<std::size_t>(id)] != 0) {
+            return Flush::Stuck;
+        }
+        const NextEvent next = ownerNext(state, id);
+        if (!next.valid) {
+            continue;
+        }
+        retried[static_cast<std::size_t>(id)] = 1;
+        writeHeap(state, id, next);
+        inserted = true;
+    }
+    return inserted ? Flush::Inserted : Flush::None;
+}
+
 bool drainInstant(EngineState& state, api::SimTime now, const Handlers& handlers) {
     state.now = now;
     const int fleet = fleetOf(state);
-    while (!state.heap.empty() && state.heap.top().time == now) {
+    const int owners = ownerCount(fleet);
+    std::vector<char> deferred(static_cast<std::size_t>(owners), 0);
+    std::vector<char> retried(static_cast<std::size_t>(owners), 0);
+    // Priority 2 is the last movement priority (arrivals and resource releases).
+    // Rejected leaves are priority 1 and must run again before a dispatcher wake.
+    const uint8_t movement = priorityOf(EventType::PlatformReachedFromDepot);
+    const int guardLimit = owners * 8 + 16;
+    int steps = 0;
+
+    const auto missingDeferred = [&]() {
+        for (int id = 0; id < owners; ++id) {
+            if (deferred[static_cast<std::size_t>(id)] != 0 && !state.heap.contains(id)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const auto noteCascade = [&]() {
+        for (int id = 0; id < owners; ++id) {
+            if (deferred[static_cast<std::size_t>(id)] != 0 && state.heap.contains(id)) {
+                deferred[static_cast<std::size_t>(id)] = 0;
+            }
+        }
+    };
+
+    while (true) {
+        if (++steps > guardLimit) {
+            return false;
+        }
+        const bool pending = !state.heap.empty() && state.heap.top().time == now;
+        if (!pending || (missingDeferred() && state.heap.top().priority > movement)) {
+            const Flush flush = flushDeferred(state, deferred, retried);
+            if (flush == Flush::Stuck) {
+                return false;
+            }
+            if (flush == Flush::Inserted) {
+                if constexpr (kCheckInvariants) {
+                    handlers.checkInvariants(state);
+                }
+                continue;
+            }
+            break;
+        }
+
         const EventKey key = state.heap.pop();
-        DirtySet dirty(ownerCount(fleet));
+        const NextEvent before = ownerNext(state, key.owner);
+        DirtySet dirty(owners);
         dispatchEvent(state, key.owner, now, dirty, handlers);
         dirty.push(key.owner);
         if (!runCascade(state, dirty, now, handlers)) {
             return false;
         }
-        if constexpr (kCheckInvariants) {
-            handlers.checkInvariants(state);
+        noteCascade();
+        const NextEvent after = ownerNext(state, key.owner);
+        const int owner = static_cast<int>(key.owner);
+        if (owner >= 0 && owner < owners && !state.heap.contains(owner) && after.valid &&
+            after == before && after.time == now && realPredictor(handlers, owner, fleet)) {
+            deferred[static_cast<std::size_t>(owner)] = 1;
+        } else if constexpr (kCheckInvariants) {
+            if (!missingDeferred()) {
+                handlers.checkInvariants(state);
+            }
         }
     }
     return true;
