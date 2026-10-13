@@ -162,6 +162,7 @@ struct DayRun {
     ubahn::api::SimSummary summary;
     std::optional<std::string> internalError;
     std::vector<std::vector<ubahn::api::SimTime>> arrivals;
+    std::string lateness;
     std::string movement;
 };
 
@@ -180,21 +181,22 @@ DayRun simulate(const ubahn::api::SimParams& params) {
 
     for (const ubahn::api::ViewDelta& delta : engine.takeDeltas()) {
         for (const ubahn::api::TrainUpdate& train : delta.trains) {
-            if (train.lateness != 0 || train.flags.held || train.flags.slowed ||
-                train.flags.catchingUp) {
-                run.movement = "train " + std::to_string(train.id) + " lateness " +
-                               std::to_string(train.lateness) + " held " +
+            if (train.lateness != 0 && run.lateness.empty()) {
+                run.lateness = "train " + std::to_string(train.id) + " lateness " +
+                               std::to_string(train.lateness) + " at " + std::to_string(delta.t);
+            }
+            if ((train.flags.held || train.flags.slowed || train.flags.catchingUp) &&
+                run.movement.empty()) {
+                run.movement = "train " + std::to_string(train.id) + " held " +
                                std::to_string(train.flags.held ? 1 : 0) + " slowed " +
                                std::to_string(train.flags.slowed ? 1 : 0) + " catching " +
                                std::to_string(train.flags.catchingUp ? 1 : 0) + " at " +
                                std::to_string(delta.t);
-                return run;
             }
         }
         for (const ubahn::api::Warning& warning : delta.warnings) {
-            if (warning.code == ubahn::api::WarningCode::NoTrainForTrip) {
-                run.movement = "missing train for slot " + std::to_string(warning.tripSlot);
-                return run;
+            if (warning.code == ubahn::api::WarningCode::NoTrainForTrip && run.lateness.empty()) {
+                run.lateness = "missing train for slot " + std::to_string(warning.tripSlot);
             }
         }
         for (const ubahn::api::BoardUpdate& board : delta.boards) {
@@ -217,41 +219,48 @@ DayRun simulate(const ubahn::api::SimParams& params) {
     return run;
 }
 
-std::string expectOnTime(int day) {
+struct Verdict {
+    std::string onTime;  // lateness, missing trains, the first trip
+    std::string regular; // regulator actions and arrival intervals
+};
+
+Verdict judge(int day) {
+    Verdict verdict;
     const ubahn::api::SimParams params = trainingDay(day);
     if (!ubahn::api::validate(params).empty()) {
-        return "training day failed validate";
+        verdict.onTime = "training day failed validate";
+        return verdict;
     }
 
     const DayRun run = simulate(params);
-    if (run.internalError.has_value()) {
-        return *run.internalError;
-    }
-    if (!run.movement.empty()) {
-        return run.movement;
-    }
-
     const ubahn::api::SimSummary& summary = run.summary;
-    if (summary.delayCount[0] != 0 || summary.delayCount[1] != 0 || summary.maxLatenessSec != 0 ||
-        summary.holds.count != 0 || summary.holds.totalSec != 0 || summary.slowdowns.count != 0 ||
-        summary.slowdowns.totalSec != 0 || summary.signalStops.count != 0 ||
-        summary.signalStops.totalSec != 0 || summary.recovery.count != 0) {
-        return "summary is not a clean on-time day";
-    }
-    if (!summary.stretchedWindows.empty()) {
-        return "training fleet stretched a window";
-    }
-    if (summary.stopCount[0] + summary.stopCount[1] <= 0) {
-        return "no dwells were counted";
+    const ubahn::core::Line line = ubahn::core::buildLine(params.line);
+    if (run.internalError.has_value()) {
+        verdict.onTime = *run.internalError;
+    } else if (!run.lateness.empty()) {
+        verdict.onTime = run.lateness;
+    } else if (summary.delayCount[0] != 0 || summary.delayCount[1] != 0 ||
+               summary.maxLatenessSec != 0 || summary.recovery.count != 0) {
+        verdict.onTime = "summary has lateness on a day without delays";
+    } else if (!summary.stretchedWindows.empty()) {
+        verdict.onTime = "training fleet stretched a window";
+    } else if (summary.stopCount[0] + summary.stopCount[1] <= 0) {
+        verdict.onTime = "no dwells were counted";
+    } else {
+        verdict.onTime =
+            checkFirstTrip(run.arrivals, line.n,
+                           ubahn::core::dayStart(params.period.start) + ubahn::api::kOpenTod);
     }
 
-    const ubahn::core::Line line = ubahn::core::buildLine(params.line);
-    const std::string headway = checkHeadways(params.schedule, line, run.arrivals);
-    if (!headway.empty()) {
-        return headway;
+    if (!run.movement.empty()) {
+        verdict.regular = run.movement;
+    } else if (summary.holds.count != 0 || summary.slowdowns.count != 0 ||
+               summary.signalStops.count != 0) {
+        verdict.regular = "summary counts regulator actions";
+    } else {
+        verdict.regular = checkHeadways(params.schedule, line, run.arrivals);
     }
-    return checkFirstTrip(run.arrivals, line.n,
-                          ubahn::core::dayStart(params.period.start) + ubahn::api::kOpenTod);
+    return verdict;
 }
 
 } // namespace
@@ -265,26 +274,27 @@ private slots:
 };
 
 void AcceptanceNodelayTest::weekday() {
-    const std::string error = expectOnTime(0);
-    // TODO(BE-17): SPEC 14.1 cannot hold in the 07-10 and 17-20 windows (H = T_turn = 120,
-    // dwell 80, tClear 25). nReq = ceil(3060 / 120) = 26 trains turn in 26 * H = 3120 s, but
-    // a turn without lateness fits only 2 * (T_toTerm + dwell + T_turn + H - tClear) = 3090 s:
-    // the dead end has no spare time and the departure platform holds a train at most
-    // H - tClear. Each train leaves the arrival platform 15 s after dPlan[N-1].
-    QEXPECT_FAIL("", "SPEC 14.1 vs ALGORITHM 5.2 / 7.5 at H = T_turn, see TODO(BE-17)", Abort);
-    QVERIFY2(error.empty(), error.c_str());
+    const Verdict verdict = judge(0);
+    // TODO(BE-17): at 10:00 and 20:00 the dwell drops (80 -> 60, 80 -> 40) while the first slot
+    // of the new window is still one old H (120 s) after the last one (ALGORITHM 10.1). The new
+    // trip gains 20 s or more per station on the old one, and from the second station its plan
+    // arrives less than tClear after the leader's planned departure: the regulator slows it and
+    // it runs late (first at 10:04:45).
+    QEXPECT_FAIL("", "window boundary with a dwell drop, see TODO(BE-17)", Abort);
+    QVERIFY2(verdict.onTime.empty(), verdict.onTime.c_str());
+    QVERIFY2(verdict.regular.empty(), verdict.regular.c_str());
 }
 
 void AcceptanceNodelayTest::weekend() {
-    const std::string error = expectOnTime(5);
-    // TODO(BE-17): at 20:00 nReq drops from 12 to 7. ALGORITHM 10.3 withdraws every arriving
-    // train while inService > need, including the ones that would take the first H = 360
-    // slots, so ALGORITHM 10.2 issues depot trains for them. A withdrawn train (LeaveToDepot)
-    // and an issued train (LeaveDepot) then want the same throat at the same second, and one
-    // of them is 90 s late.
-    QEXPECT_FAIL("", "SPEC 14.1 vs ALGORITHM 10.2 / 10.3 at a fleet reduction, see TODO(BE-17)",
-                 Abort);
-    QVERIFY2(error.empty(), error.c_str());
+    const Verdict verdict = judge(5);
+    QVERIFY2(verdict.onTime.empty(), verdict.onTime.c_str());
+    // TODO(BE-17): no regulator actions, but arrival intervals differ from H in two places.
+    // 1) Where the dwell changes at 10:00 and 20:00, arrivals drift by the dwell difference
+    //    per station (380 .. 480 s, 220 .. 120 s); the transition allowance accepts only the
+    //    old or new H. 2) On terminal platforms a turnaround train is placed when ready, a depot
+    //    train at slot - dwellMin, so where they alternate the gaps come in pairs (590 / 130).
+    QEXPECT_FAIL("", "arrival intervals at window and fleet changes, see TODO(BE-17)", Abort);
+    QVERIFY2(verdict.regular.empty(), verdict.regular.c_str());
 }
 
 QTEST_APPLESS_MAIN(AcceptanceNodelayTest)

@@ -221,6 +221,37 @@ int32_t trainsNeeded(const EngineState& state, api::SimTime now) {
     return nReq(cycle, step);
 }
 
+// The first slot of this terminal that `train` can still reach after the turnaround is free,
+// and comes within one headway. Withdrawing the train would leave that slot to a depot issue,
+// whose throat passage then collides with the withdrawal. A later free slot does not count:
+// keeping a surplus train for it only queues trains in the dead end.
+bool coversNearestSlot(const EngineState& state, int train, api::Term term, api::SimTime now) {
+    if (train < 0 || train >= static_cast<int>(state.trains.size())) {
+        return false;
+    }
+    const Train& unit = state.trains[static_cast<std::size_t>(train)];
+    const api::SimTime departAt =
+        std::max(now, unit.dBase) + tTurn(state.line.cfg) + state.line.cfg.dwellMin;
+    const int32_t step = hEffAt(state.analysis, state.schedule, now);
+    const Terminal& terminal = state.terms[static_cast<std::size_t>(term)];
+    const api::Dir dir = departureDir(term);
+    const Trip* nearest = nullptr;
+    for (const int32_t id : terminal.slots) {
+        if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
+            continue;
+        }
+        const Trip& trip = state.trips[static_cast<std::size_t>(id)];
+        if (trip.dir != dir || trip.slot < departAt) {
+            continue;
+        }
+        if (nearest == nullptr || trip.slot < nearest->slot) {
+            nearest = &trip;
+        }
+    }
+    return nearest != nullptr && nearest->trainId < 0 && step > 0 &&
+           nearest->slot < departAt + step;
+}
+
 // A future slot of this terminal before today's close that `train` could still take.
 bool couldTakeBeforeClose(const EngineState& state, int train, api::Term term, api::SimTime now) {
     const Terminal& terminal = state.terms[static_cast<std::size_t>(term)];
@@ -374,7 +405,8 @@ bool decideWithdrawal(const EngineState& state, int train, api::Term term, api::
     if (windowAt(state.schedule, now) == nullptr) {
         return true;
     }
-    if (countInService(state) > trainsNeeded(state, now)) {
+    if (countInService(state) > trainsNeeded(state, now) &&
+        !coversNearestSlot(state, train, term, now)) {
         return true;
     }
     return !couldTakeBeforeClose(state, train, term, now);

@@ -104,6 +104,7 @@ private slots:
     void emptyDepotWarnsNoTrain();
     void assignTripTakesEarliestUnassigned();
     void withdrawsWhenLineHasMoreTrainsThanNeed();
+    void surplusTrainKeepsNearestFreeSlot();
     void withdrawsAfterClose();
     void keepsTrainWhenNeedIsMetAndSlotRemains();
     void rejectedScheduleLeavesStateUntouched();
@@ -322,6 +323,30 @@ void DispatcherTest::withdrawsWhenLineHasMoreTrainsThanNeed() {
     state.trains[0].aAct = now;
     queueTrip(state, ubahn::api::Term::A, now + 2 * 3600, -1);
     QVERIFY(ubahn::core::decideWithdrawal(state, 0, ubahn::api::Term::A, now));
+}
+
+void DispatcherTest::surplusTrainKeepsNearestFreeSlot() {
+    // More trains than need, but the arriving train is the one that can still take the next
+    // slot after its turnaround. Withdrawing it would leave that slot to a depot issue.
+    for (const bool taken : {false, true}) {
+        ubahn::core::EngineState state = opened(30, 3000);
+        const ubahn::api::SimTime now = 10 * 3600;
+        state.now = now;
+        const int32_t need = needAt(state, now);
+        QVERIFY(need + 1 < static_cast<int>(state.trains.size()));
+        for (int id = 0; id < need + 1; ++id) {
+            markOut(state, id);
+        }
+        ubahn::core::Train& train = state.trains[0];
+        train.state = ubahn::core::TrainState::AlightingTerminal;
+        train.dBase = now + 40;
+        const ubahn::api::SimTime ready =
+            train.dBase + ubahn::core::tTurn(state.line.cfg) + state.line.cfg.dwellMin;
+        queueTrip(state, ubahn::api::Term::A, ready - 1, -1);
+        queueTrip(state, ubahn::api::Term::A, ready + 100, taken ? 1 : -1);
+        queueTrip(state, ubahn::api::Term::A, ready + 3100, -1);
+        QCOMPARE(ubahn::core::decideWithdrawal(state, 0, ubahn::api::Term::A, now), taken);
+    }
 }
 
 void DispatcherTest::withdrawsAfterClose() {
