@@ -7,7 +7,23 @@ target_link_libraries(ubahn_app_shell_tests PRIVATE
 ubahn_set_warnings(ubahn_app_shell_tests)
 add_test(NAME ubahn_app_shell_tests COMMAND ubahn_app_shell_tests)
 
+qt_add_executable(ubahn_app_playback_tests tst_PlaybackController.cpp)
+target_link_libraries(ubahn_app_playback_tests PRIVATE
+    ubahn_app_lib
+    Qt6::Test
+)
+ubahn_set_warnings(ubahn_app_playback_tests)
+add_test(NAME ubahn_app_playback_tests COMMAND ubahn_app_playback_tests)
+
 if(NOT TARGET ubahn_worker)
+    qt_add_executable(ubahn_app_session_tests tst_AppSession.cpp)
+    target_link_libraries(ubahn_app_session_tests PRIVATE
+        ubahn_app_lib
+        Qt6::Test
+    )
+    ubahn_set_warnings(ubahn_app_session_tests)
+    add_test(NAME ubahn_app_session_tests COMMAND ubahn_app_session_tests)
+
     qt_add_executable(ubahn_app_mock_tests tst_MockApi.cpp)
     target_link_libraries(ubahn_app_mock_tests PRIVATE
         ubahn_app_lib

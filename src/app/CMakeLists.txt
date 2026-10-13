@@ -1,8 +1,14 @@
 set(UBAHN_APP_SOURCES
+    AppSession.cpp
+    AppSession.h
     MainWindow.cpp
     MainWindow.h
+    PlaybackController.cpp
+    PlaybackController.h
     SetupDialog.cpp
     SetupDialog.h
+    SimulationState.cpp
+    SimulationState.h
 )
 
 if(TARGET ubahn_worker)
