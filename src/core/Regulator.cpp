@@ -89,6 +89,28 @@ double signalStopX(const Span& span, double offset) {
     return span.lengthM - offset;
 }
 
+// Official stopX is one point per span (ALGORITHM 7.4). A leader already halted at
+// or before that point would share it; C10 needs a strict order, so the follower
+// stops one metre behind the leader's destination. Keep this in step with
+// signalHaltX in TrainEvents.cpp.
+double signalHaltX(const EngineState& state, const Train& unit) {
+    const Span& span = spanOf(state.line, unit.dir, unit.pos);
+    double stopX = signalStopX(span, state.line.cfg.signalStopOffsetM);
+    const int leaderId = unit.prevOnTrack;
+    if (leaderId < 0 || leaderId >= static_cast<int>(state.trains.size())) {
+        return stopX;
+    }
+    const Train& leader = state.trains[static_cast<std::size_t>(leaderId)];
+    const bool sameSpan =
+        leader.dir == unit.dir && leader.pos == unit.pos &&
+        (leader.state == TrainState::Running || leader.state == TrainState::StoppedAtSignal);
+    if (!sameSpan || leader.seg.x1 > stopX) {
+        return stopX;
+    }
+    stopX = std::min(stopX, leader.seg.x1 - 1.0);
+    return stopX < 0 ? 0 : stopX;
+}
+
 // Start event still in `next` → start + duration. Already scheduled result → keep it,
 // so a later pass cannot pull the maneuver earlier. Does not read `now`.
 api::SimTime fixedManeuver(const Train& unit, EventType startedBy, EventType produced,
@@ -200,7 +222,7 @@ NextEvent onSpan(const EngineState& state, const Train& unit) {
     if (earliest <= limit) {
         return eventAt(EventType::Arrive, earliest);
     }
-    const double stopX = signalStopX(span, state.line.cfg.signalStopOffsetM);
+    const double stopX = signalHaltX(state, unit);
     return eventAt(EventType::ReachSignal, timeToReach(unit.seg, stopX));
 }
 
