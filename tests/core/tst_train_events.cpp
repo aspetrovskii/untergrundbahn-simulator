@@ -72,6 +72,14 @@ int32_t clampRun(SimTime earliest, SimTime now, int32_t tMin, int32_t tMax) {
     return static_cast<int32_t>(delta);
 }
 
+// Qt defines `slots` as a keyword macro; Terminal::slots needs it out of the way.
+#pragma push_macro("slots")
+#undef slots
+auto& slotQueue(EngineState& state, Term term) {
+    return state.terms[static_cast<std::size_t>(term)].slots;
+}
+#pragma pop_macro("slots")
+
 bool depotContains(const EngineState& state, Term term, int train) {
     const auto& depot = state.terms[static_cast<std::size_t>(term)].depot;
     return std::find(depot.begin(), depot.end(), train) != depot.end();
@@ -85,9 +93,14 @@ class TrainEventsTest : public QObject {
 private slots:
     void trackListInsertAndRemove();
     void arriveIntermediateFixesDwellOnce();
+    void arriveChecksDestinationPlatform();
     void arriveTerminalAlights();
+    void originDepartureLeavesSlotQueue();
     void departReleasesPlatform();
     void reachSignalStops();
+    void followerSignalStopsBehindLeader();
+    void originWaitIsNotCatchUp();
+    void deadEndWaitIsNotLateness();
     void turnaroundChain();
     void depotChain();
     void leaveDepotOffHoursFollowsClock();
@@ -189,6 +202,28 @@ void TrainEventsTest::arriveIntermediateFixesDwellOnce() {
     QCOMPARE(behind(state, 0), 1);
 }
 
+void TrainEventsTest::arriveChecksDestinationPlatform() {
+    // The platform just left can have a fresh lastArrival. C6 is about the
+    // platform being entered (ALGORITHM 8), so that sample must not trip the check.
+    EngineState state = serviceState(0);
+    const SimTime now = state.now;
+    pullOut(state, 0);
+    ubahn::core::Trip& trip = addTrip(state, Dir::I, now - 1000, 60);
+    trip.aPlan[3] = now;
+    trip.dPlan[3] = now + 60;
+    state.trains[0].tripId = trip.id;
+    trip.trainId = 0;
+    placeOnSpan(state, 0, Dir::I, 2, now - 100, now);
+    platformAt(state, static_cast<int>(Dir::I), 2).lastArrival = now - 10;
+    arm(state, 0, EventType::Arrive, now);
+
+    DirtySet dirty = dirtyFor(state);
+    handleTrain(state, 0, now, dirty);
+
+    QCOMPARE(state.trains[0].pos, 3);
+    QCOMPARE(platformAt(state, static_cast<int>(Dir::I), 3).occupant, 0);
+}
+
 void TrainEventsTest::arriveTerminalAlights() {
     EngineState state = serviceState(0);
     const SimTime now = state.now;
@@ -207,6 +242,32 @@ void TrainEventsTest::arriveTerminalAlights() {
     QCOMPARE(platformAt(state, static_cast<int>(Dir::I), last).occupant, 0);
     QCOMPARE(platformAt(state, static_cast<int>(Dir::I), last).lastArrival, now);
     QVERIFY(dirty.contains(0));
+}
+
+void TrainEventsTest::originDepartureLeavesSlotQueue() {
+    EngineState state = serviceState(0);
+    const SimTime now = state.now;
+    pullOut(state, 0);
+    placeAtPlatform(state, 0, Dir::I, 0);
+    state.trains[0].aAct = now - 60;
+    const int32_t sentId = addTrip(state, Dir::I, now, 60).id;
+    const int32_t laterId = addTrip(state, Dir::I, now + 180, 60).id;
+    state.trips[static_cast<std::size_t>(sentId)].trainId = 0;
+    state.trains[0].tripId = sentId;
+    auto& queue = slotQueue(state, Term::A);
+    queue.clear();
+    queue.push_back(sentId);
+    queue.push_back(laterId);
+    trackPushBack(state, Dir::I, 0);
+    arm(state, 0, EventType::Depart, now);
+
+    DirtySet dirty = dirtyFor(state);
+    handleTrain(state, 0, now, dirty);
+
+    QCOMPARE(state.trains[0].state, TrainState::Running);
+    // A sent trip stays out of the queue, so the turnaround cannot pick it again.
+    QCOMPARE(static_cast<int>(queue.size()), 1);
+    QCOMPARE(static_cast<int>(queue.front()), static_cast<int>(laterId));
 }
 
 void TrainEventsTest::departReleasesPlatform() {
@@ -273,6 +334,93 @@ void TrainEventsTest::reachSignalStops() {
     QCOMPARE(train.seg.x0, stopX);
     QCOMPARE(train.seg.x1, stopX);
     QVERIFY(dirty.contains(0));
+}
+
+void TrainEventsTest::followerSignalStopsBehindLeader() {
+    EngineState state = serviceState(0);
+    pullOut(state, 0);
+    pullOut(state, 1);
+    const SimTime depart = 1000;
+    placeOnSpan(state, 1, Dir::I, 0, depart, depart + 120);
+    ubahn::core::Trip& trip = addTrip(state, Dir::I, depart, 60);
+    trip.trainId = 1;
+    state.trains[1].tripId = trip.id;
+    trip.aPlan[1] = 1300;
+    setNext(state, 1, NextEvent{EventType::Arrive, depart + 120, true});
+
+    const ubahn::core::Span& span = spanOf(state.line, Dir::I, 0);
+    const double stopX = span.lengthM - state.line.cfg.signalStopOffsetM;
+    ubahn::core::Train& leader = state.trains[0];
+    leader.state = TrainState::StoppedAtSignal;
+    leader.dir = Dir::I;
+    leader.pos = 0;
+    leader.seg = ubahn::core::Segment{depart, depart, stopX, stopX};
+    leader.signalAt = depart;
+    setNext(state, 0, NextEvent{EventType::Arrive, 3000, true});
+    trackPushBack(state, Dir::I, 0);
+    trackPushBack(state, Dir::I, 1);
+
+    const NextEvent next = ubahn::core::computeNext(state, 1, depart);
+    QCOMPARE(next.type, EventType::ReachSignal);
+    ubahn::core::applyReschedule(state, 1, next, depart);
+    QVERIFY(state.trains[1].seg.x1 < stopX - 0.5);
+    QVERIFY(state.trains[1].seg.x1 < leader.seg.x1 - 0.5);
+
+    // The event time may not move when the queue is only a metre, so the segment can
+    // still be aimed at the platform. The stop itself must not land on the leader.
+    placeOnSpan(state, 1, Dir::I, 0, depart, depart + 120);
+    state.trains[1].prevOnTrack = 0;
+    state.trains[0].nextOnTrack = 1;
+    arm(state, 1, EventType::ReachSignal, depart + 60);
+    state.now = depart + 60;
+    DirtySet dirty = dirtyFor(state);
+    handleTrain(state, 1, state.now, dirty);
+    QCOMPARE(state.trains[1].state, TrainState::StoppedAtSignal);
+    QVERIFY(state.trains[1].seg.x0 < stopX - 0.5);
+}
+
+void TrainEventsTest::originWaitIsNotCatchUp() {
+    EngineState state = serviceState(0);
+    pullOut(state, 0);
+    placeAtPlatform(state, 0, Dir::I, 0);
+    const SimTime slot = state.now + 100;
+    ubahn::core::Trip& trip = addTrip(state, Dir::I, slot, 60);
+    trip.trainId = 0;
+    state.trains[0].tripId = trip.id;
+    state.trains[0].dwellEff = state.line.cfg.dwellMin;
+    state.trains[0].dBase = slot;
+    state.trains[0].flags.catchingUp = false;
+
+    ubahn::core::applyReschedule(state, 0, NextEvent{EventType::Depart, slot, true}, state.now);
+    QVERIFY(!state.trains[0].flags.catchingUp);
+    QVERIFY(!state.trains[0].flags.held);
+}
+
+void TrainEventsTest::deadEndWaitIsNotLateness() {
+    const int last = serviceState(0).line.n - 1;
+    for (const bool lateAlighting : {false, true}) {
+        EngineState state = serviceState(0);
+        const SimTime now = state.now;
+        pullOut(state, 0);
+        placeAtPlatform(state, 0, Dir::I, last);
+        trackPushBack(state, Dir::I, 0);
+        ubahn::core::Trip& trip = addTrip(state, Dir::I, now - 2000, 60);
+        trip.dPlan[static_cast<std::size_t>(last)] = now - 15;
+        trip.trainId = 0;
+        state.trains[0].tripId = trip.id;
+        // Alighting ended on plan and the train then waited 15 s for the dead end, or the
+        // alighting itself ended 15 s late.
+        state.trains[0].dBase = lateAlighting ? now : now - 15;
+
+        arm(state, 0, EventType::LeaveToDeadEnd, now);
+        DirtySet dirty = dirtyFor(state);
+        handleTrain(state, 0, now, dirty);
+
+        QCOMPARE(state.trains[0].state, TrainState::ToDeadEnd);
+        const int32_t expected = lateAlighting ? 15 : 0;
+        QCOMPARE(state.trains[0].lateness, expected);
+        QCOMPARE(platformAt(state, static_cast<int>(Dir::I), last).lastShift, expected);
+    }
 }
 
 void TrainEventsTest::turnaroundChain() {

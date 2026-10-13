@@ -2,6 +2,7 @@
 #include "core/Schedule.h"
 
 #include <QtTest>
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -31,12 +32,6 @@ ubahn::api::SimParams paramsAt(ubahn::api::SimTime start, int fleet) {
     period.end = start + 6 * ubahn::api::kSecondsPerDay / 24;
     return ubahn::core::makeParams(ubahn::core::trainingLineConfig(),
                                    ubahn::core::constantSchedule(120, 40, 0), fleet, period);
-}
-
-bool indexedHeapWorks() {
-    ubahn::core::IndexedMinHeap heap(4);
-    heap.set(1, ubahn::core::EventKey{10, 1, 1});
-    return heap.contains(1) && !heap.empty() && heap.top().time == 10 && heap.top().owner == 1;
 }
 
 void expectIds(const std::vector<int>& got, const std::vector<int>& expected) {
@@ -145,6 +140,7 @@ private slots:
     void cascadeIsFifoWithoutDuplicates();
     void cascadeBudgetReturnsFalse();
     void sameInstantFollowsPriorityThenOwner();
+    void rejectedLeaveDepotRetriesAfterThroatFrees();
     void oneDeltaPerInstantWhenEmitting();
     void suppressClearsPendingDelays();
     void runUntilSetsNow();
@@ -256,10 +252,6 @@ void EngineLoopTest::cascadeBudgetReturnsFalse() {
 }
 
 void EngineLoopTest::sameInstantFollowsPriorityThenOwner() {
-    if (!indexedHeapWorks()) {
-        QSKIP("IndexedMinHeap is still the BE-02 stub on this branch");
-    }
-
     constexpr int fleet = 4;
     recordFleet = fleet;
     ubahn::core::EngineState state =
@@ -297,11 +289,55 @@ void EngineLoopTest::sameInstantFollowsPriorityThenOwner() {
     QCOMPARE(state.now, instant);
 }
 
-void EngineLoopTest::oneDeltaPerInstantWhenEmitting() {
-    if (!indexedHeapWorks()) {
-        QSKIP("IndexedMinHeap is still the BE-02 stub on this branch");
-    }
+void EngineLoopTest::rejectedLeaveDepotRetriesAfterThroatFrees() {
+    // LeaveDepot is priority 1 and PlatformReachedFromDepot is priority 2, so the
+    // issue is popped while the throat is still taken. The release is the same
+    // second; the rejected leave has to run after it and keep its heap entry.
+    constexpr int fleet = 2;
+    ubahn::core::EngineState state =
+        ubahn::core::makeState(paramsAt(ubahn::api::kOpenTod, fleet), 1);
+    const ubahn::api::SimTime instant = 10 * 3600;
+    const ubahn::api::LineConfig& cfg = state.line.cfg;
 
+    std::deque<int>& depotB = state.terms[static_cast<std::size_t>(ubahn::api::Term::B)].depot;
+    depotB.erase(std::remove(depotB.begin(), depotB.end(), 1), depotB.end());
+
+    ubahn::core::Train& issued = state.trains[0];
+    ubahn::core::Trip& issuedTrip =
+        ubahn::core::addTrip(state, ubahn::api::Dir::I, instant, cfg.dwellMin);
+    issuedTrip.trainId = 0;
+    issued.tripId = issuedTrip.id;
+    issued.next.type = ubahn::core::EventType::LeaveDepot;
+    issued.next.time = instant;
+    issued.next.valid = true;
+    state.heap.set(0, ubahn::core::EventKey{instant, ubahn::core::priorityOf(issued.next.type), 0});
+
+    ubahn::core::Train& passer = state.trains[1];
+    ubahn::core::Trip& passTrip =
+        ubahn::core::addTrip(state, ubahn::api::Dir::I, instant, cfg.dwellMin);
+    passTrip.trainId = 1;
+    passer.tripId = passTrip.id;
+    passer.state = ubahn::core::TrainState::LeavingDepot;
+    passer.depotAt = ubahn::api::Term::A;
+    passer.dir = ubahn::api::Dir::I;
+    passer.pos = 0;
+    passer.next.type = ubahn::core::EventType::PlatformReachedFromDepot;
+    passer.next.time = instant;
+    passer.next.valid = true;
+    state.terms[static_cast<std::size_t>(ubahn::api::Term::A)].throat.occupant = 1;
+    state.heap.set(1, ubahn::core::EventKey{instant, ubahn::core::priorityOf(passer.next.type), 1});
+
+    ubahn::core::processInstant(state, instant, ubahn::core::defaultHandlers());
+
+    QCOMPARE(issued.state, ubahn::core::TrainState::LeavingDepot);
+    QCOMPARE(state.terms[static_cast<std::size_t>(ubahn::api::Term::A)].throat.occupant, 0);
+    QCOMPARE(passer.state, ubahn::core::TrainState::WaitingSlot);
+    QVERIFY(state.heap.contains(0));
+    QVERIFY(state.heap.contains(1));
+    QVERIFY(state.heap.keyOf(0).time > instant);
+}
+
+void EngineLoopTest::oneDeltaPerInstantWhenEmitting() {
     scheduledTrains = 3;
     scheduledTime[0] = 100;
     scheduledTime[1] = 100;
@@ -332,10 +368,6 @@ void EngineLoopTest::oneDeltaPerInstantWhenEmitting() {
 }
 
 void EngineLoopTest::suppressClearsPendingDelays() {
-    if (!indexedHeapWorks()) {
-        QSKIP("IndexedMinHeap is still the BE-02 stub on this branch");
-    }
-
     scheduledTrains = 2;
     scheduledTime[0] = 100;
     scheduledTime[1] = 200;
@@ -370,10 +402,6 @@ void EngineLoopTest::runUntilSetsNow() {
 }
 
 void EngineLoopTest::runUntilLeavesLaterEvents() {
-    if (!indexedHeapWorks()) {
-        QSKIP("IndexedMinHeap is still the BE-02 stub on this branch");
-    }
-
     scheduledTrains = 3;
     scheduledTime[0] = 100;
     scheduledTime[1] = 250;

@@ -1,10 +1,12 @@
 #include "EngineFixture.h"
 #include "api/Functions.h"
 #include "core/Dispatcher.h"
+#include "core/Regulator.h"
 #include "core/Schedule.h"
 #include "core/Time.h"
 
 #include <QtTest>
+#include <algorithm>
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -97,9 +99,12 @@ private slots:
     void horizonDoesNotDuplicate();
     void turnaroundKeepsSlotWhenReady();
     void lateTurnaroundLosesSlotToDepot();
+    void shiftPastQueueEndDirtiesLastHolder();
+    void latePlatformHolderKeepsSlot();
     void emptyDepotWarnsNoTrain();
     void assignTripTakesEarliestUnassigned();
     void withdrawsWhenLineHasMoreTrainsThanNeed();
+    void surplusTrainKeepsNearestFreeSlot();
     void withdrawsAfterClose();
     void keepsTrainWhenNeedIsMetAndSlotRemains();
     void rejectedScheduleLeavesStateUntouched();
@@ -211,6 +216,62 @@ void DispatcherTest::lateTurnaroundLosesSlotToDepot() {
     QVERIFY(state.pendingWarnings.empty());
 }
 
+void DispatcherTest::shiftPastQueueEndDirtiesLastHolder() {
+    // Same chain as lateTurnaroundLosesSlotToDepot, but the following slot is held and
+    // there is no slot after it. The displaced holder ends without a trip and must be
+    // recomputed, or its old event stays in the heap.
+    ubahn::core::EngineState state = opened(4, 3000);
+    const ubahn::api::SimTime now = 0;
+    state.now = now;
+    parkCursor(state, ubahn::api::Term::A, now);
+    pullFromDepot(state, ubahn::api::Term::A, 0);
+    ubahn::core::placeInDeadEnd(state, 0, ubahn::api::Term::A);
+    ubahn::core::NextEvent far;
+    far.type = ubahn::core::EventType::LeaveDeadEnd;
+    far.time = 1000000;
+    far.valid = true;
+    ubahn::core::setNext(state, 0, far);
+    pullFromDepot(state, ubahn::api::Term::B, 2);
+    markOut(state, 2);
+    queueTrip(state, ubahn::api::Term::A, now + 20, 0);
+    queueTrip(state, ubahn::api::Term::A, now + 400, 2);
+
+    ubahn::core::DirtySet dirty(ubahn::core::ownerCount(static_cast<int>(state.trains.size())));
+    ubahn::core::handleDispatcher(state, ubahn::api::Term::A, now, dirty);
+
+    QCOMPARE(state.trains[2].tripId, -1);
+    QVERIFY(dirty.contains(2));
+}
+
+void DispatcherTest::latePlatformHolderKeepsSlot() {
+    // The holder stands on the departure platform but arrived later than slot - dwellMin.
+    // A depot train would wait behind it, so the slot stays and nothing shifts.
+    ubahn::core::EngineState state = opened(4, 3000);
+    const ubahn::api::SimTime now = 0;
+    state.now = now;
+    parkCursor(state, ubahn::api::Term::A, now);
+    pullFromDepot(state, ubahn::api::Term::A, 0);
+    ubahn::core::placeAtPlatform(state, 0, ubahn::api::Dir::I, 0);
+    QVERIFY(ubahn::core::readyAt(state, 0) > now + 20 - state.line.cfg.dwellMin);
+    const int depotBefore = static_cast<int>(state.terms[0].depot.size());
+    const int32_t tripId = queueTrip(state, ubahn::api::Term::A, now + 20, 0).id;
+    const int32_t nextId = queueTrip(state, ubahn::api::Term::A, now + 400, -1).id;
+
+    ubahn::core::DirtySet dirty(ubahn::core::ownerCount(static_cast<int>(state.trains.size())));
+    ubahn::core::handleDispatcher(state, ubahn::api::Term::A, now, dirty);
+
+    QCOMPARE(state.trips[static_cast<std::size_t>(tripId)].trainId, 0);
+    QCOMPARE(state.trains[0].tripId, tripId);
+    QCOMPARE(state.trips[static_cast<std::size_t>(nextId)].trainId, -1);
+    QCOMPARE(static_cast<int>(state.terms[0].depot.size()), depotBefore);
+    QVERIFY(!dirty.contains(0));
+    const ubahn::api::SimTime lead =
+        state.line.cfg.depotOut + state.line.cfg.dwellMin + ubahn::core::kDispatcherMargin;
+    const ubahn::core::NextEvent wake =
+        ubahn::core::dispatcherNext(state, ubahn::api::Term::A, now);
+    QCOMPARE(wake.time, std::max(now + 400 - lead, now + 1));
+}
+
 void DispatcherTest::emptyDepotWarnsNoTrain() {
     ubahn::core::EngineState state = opened(4, 3000);
     const ubahn::api::SimTime now = 10 * 3600;
@@ -264,6 +325,30 @@ void DispatcherTest::withdrawsWhenLineHasMoreTrainsThanNeed() {
     QVERIFY(ubahn::core::decideWithdrawal(state, 0, ubahn::api::Term::A, now));
 }
 
+void DispatcherTest::surplusTrainKeepsNearestFreeSlot() {
+    // More trains than need, but the arriving train is the one that can still take the next
+    // slot after its turnaround. Withdrawing it would leave that slot to a depot issue.
+    for (const bool taken : {false, true}) {
+        ubahn::core::EngineState state = opened(30, 3000);
+        const ubahn::api::SimTime now = 10 * 3600;
+        state.now = now;
+        const int32_t need = needAt(state, now);
+        QVERIFY(need + 1 < static_cast<int>(state.trains.size()));
+        for (int id = 0; id < need + 1; ++id) {
+            markOut(state, id);
+        }
+        ubahn::core::Train& train = state.trains[0];
+        train.state = ubahn::core::TrainState::AlightingTerminal;
+        train.dBase = now + 40;
+        const ubahn::api::SimTime ready =
+            train.dBase + ubahn::core::tTurn(state.line.cfg) + state.line.cfg.dwellMin;
+        queueTrip(state, ubahn::api::Term::A, ready - 1, -1);
+        queueTrip(state, ubahn::api::Term::A, ready + 100, taken ? 1 : -1);
+        queueTrip(state, ubahn::api::Term::A, ready + 3100, -1);
+        QCOMPARE(ubahn::core::decideWithdrawal(state, 0, ubahn::api::Term::A, now), taken);
+    }
+}
+
 void DispatcherTest::withdrawsAfterClose() {
     ubahn::core::EngineState state = opened(4, 3000);
     const ubahn::api::SimTime now = ubahn::api::kCloseTod + 60;
@@ -303,11 +388,6 @@ void DispatcherTest::rejectedScheduleLeavesStateUntouched() {
         gap.headway = 3000;
         gap.dwell = 40;
         day.windows.push_back(gap);
-    }
-    // TODO(BE-12): validateSchedule is the BE-06 stub and accepts this profile.
-    // BE-17 drops the skip once a gapped day is rejected.
-    if (ubahn::api::validateSchedule(state.line.cfg, broken).empty()) {
-        QSKIP("TODO(BE-12): validateSchedule is the BE-06 stub and accepts a gapped profile");
     }
     const ubahn::api::ScheduleConfig saved = state.schedule;
     const int trips = static_cast<int>(state.trips.size());

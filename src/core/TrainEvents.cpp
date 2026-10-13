@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <vector>
 
@@ -199,6 +200,12 @@ bool rejectIfBusy(int train, bool busy, DirtySet& dirty) {
 
 void assertCheck(const std::vector<std::string>& violations, const char* message) {
     if constexpr (kCheckInvariants) {
+        if (!violations.empty()) {
+            std::fprintf(stderr, "%s\n", message);
+            for (const std::string& line : violations) {
+                std::fprintf(stderr, "  %s\n", line.c_str());
+            }
+        }
         UBAHN_ASSERT(violations.empty(), message);
     } else {
         static_cast<void>(violations);
@@ -275,6 +282,26 @@ double signalStopX(const EngineState& state, const Span& span) {
     return stopX;
 }
 
+// Same queue as Regulator.cpp signalHaltX: one metre behind a leader who is
+// already aimed at or short of the official signal point.
+double signalHaltX(const EngineState& state, const Train& unit) {
+    const Span& span = spanOf(state.line, unit.dir, unit.pos);
+    double stopX = signalStopX(state, span);
+    const int leaderId = unit.prevOnTrack;
+    if (leaderId < 0 || leaderId >= static_cast<int>(state.trains.size())) {
+        return stopX;
+    }
+    const Train& leader = state.trains[static_cast<std::size_t>(leaderId)];
+    const bool sameSpan =
+        leader.dir == unit.dir && leader.pos == unit.pos &&
+        (leader.state == TrainState::Running || leader.state == TrainState::StoppedAtSignal);
+    if (!sameSpan || leader.seg.x1 > stopX) {
+        return stopX;
+    }
+    stopX = std::min(stopX, leader.seg.x1 - 1.0);
+    return stopX < 0 ? 0 : stopX;
+}
+
 bool spanStart(const EngineState& state, const Train& train) {
     return train.pos >= 0 && train.pos < state.line.n - 1 &&
            train.pos < static_cast<int>(state.line.spans.size());
@@ -297,13 +324,15 @@ void onArrive(EngineState& state, int index, api::SimTime now, DirtySet& dirty) 
     if (rejectIfBusy(index, platform.occupant >= 0, dirty)) {
         return;
     }
-    assertCheck(checkArrival(state, index, now), "checkArrival");
 
     const bool fromSignal = train.state == TrainState::StoppedAtSignal;
     const api::SimTime stoppedAt = train.signalAt;
     const int behindBefore = behind(state, index);
 
+    // checkArrival reads the arrival platform and aPlan[pos] (ALGORITHM 8).
     train.pos = q;
+    assertCheck(checkArrival(state, index, now), "checkArrival");
+
     train.aAct = now;
     occupyPlatform(platform, index, now);
     const int station = stationOf(state.line, train.dir, q);
@@ -331,11 +360,28 @@ void onReachSignal(EngineState& state, int index, api::SimTime now, DirtySet& di
     }
     const int behindBefore = behind(state, index);
     const Span& span = spanOf(state.line, train.dir, train.pos);
-    const double stopX = signalStopX(state, span);
+    const double official = signalStopX(state, span);
+    double stand = official;
+    const int leaderId = train.prevOnTrack;
+    if (leaderId >= 0 && leaderId < static_cast<int>(state.trains.size())) {
+        const Train& leader = state.trains[static_cast<std::size_t>(leaderId)];
+        const bool sameSpan =
+            leader.dir == train.dir && leader.pos == train.pos &&
+            (leader.state == TrainState::Running || leader.state == TrainState::StoppedAtSignal);
+        if (sameSpan) {
+            const double leaderX = positionOnSegment(leader.seg, now);
+            if (leaderX <= official) {
+                stand = std::min(stand, leaderX - 1.0);
+            }
+        }
+    }
+    if (stand < 0) {
+        stand = 0;
+    }
     train.state = TrainState::StoppedAtSignal;
     train.signalAt = now;
     // Standing at the signal. The approach time is added by computeNext, not by this segment.
-    train.seg = Segment{now, now, stopX, stopX};
+    train.seg = Segment{now, now, stand, stand};
     seedMoved(state, index, behindBefore, dirty);
 }
 
@@ -384,7 +430,13 @@ void onDepart(EngineState& state, int index, api::SimTime now, DirtySet& dirty) 
     }
     seedMoved(state, index, behindBefore, dirty);
     if (train.pos == 0) {
-        pushDepartureWaiters(state, termOfDeparture(train.dir), index, dirty);
+        const api::Term origin = termOfDeparture(train.dir);
+        // terms[].slots holds trips not yet sent (ALGORITHM 5.4). A sent trip left in the
+        // queue looks unassigned once its train turns round, and the next turnaround or
+        // depot issue would take a slot that is already in the past (ALGORITHM 10.2).
+        auto& queue = state.terms[static_cast<std::size_t>(origin)].slots;
+        queue.erase(std::remove(queue.begin(), queue.end(), train.tripId), queue.end());
+        pushDepartureWaiters(state, origin, index, dirty);
     }
 }
 
@@ -399,7 +451,9 @@ void onLeaveToDeadEnd(EngineState& state, int index, api::SimTime now, DirtySet&
 
     const int behindBefore = behind(state, index);
     const int dirIndex = static_cast<int>(train.dir);
-    const int32_t shift = planShiftAt(tripOf(state, index), train.pos, now);
+    // Waiting past the end of alighting for the dead end is waiting for the next departure
+    // slot (the dead end is held by the train ahead until its slot), not lateness.
+    const int32_t shift = planShiftAt(tripOf(state, index), train.pos, std::min(now, train.dBase));
     if (train.pos >= 0 &&
         train.pos < static_cast<int>(state.platforms[static_cast<std::size_t>(dirIndex)].size())) {
         releasePlatform(platformAt(state, dirIndex, train.pos), index, now, train.aAct, shift);
@@ -601,7 +655,7 @@ void applyReschedule(EngineState& state, int train, const NextEvent& next, api::
         if (next.type == EventType::ReachSignal || unit.state == TrainState::StoppedAtSignal) {
             // StoppedAtSignal stays put (ALGORITHM 13). ReachSignal retargets the run to stopX.
             destination =
-                unit.state == TrainState::StoppedAtSignal ? here : signalStopX(state, span);
+                unit.state == TrainState::StoppedAtSignal ? here : signalHaltX(state, unit);
         }
         api::SimTime arrival = next.time;
         if (arrival <= now) {
@@ -625,9 +679,13 @@ void applyReschedule(EngineState& state, int train, const NextEvent& next, api::
         next.type == EventType::Depart) {
         unit.flags.held = next.time > unit.dBase;
         unit.flags.slowed = false;
-        const Trip* trip = tripOf(state, train);
-        if (trip != nullptr) {
-            unit.flags.catchingUp = unit.dwellEff < trip->dwellPlan;
+        // WaitingSlot dwellEff is dwellMin while the train waits for its slot. That
+        // gap is not catch-up (fixOriginDwell, ALGORITHM 7.2).
+        if (unit.state == TrainState::Dwelling) {
+            const Trip* trip = tripOf(state, train);
+            if (trip != nullptr) {
+                unit.flags.catchingUp = unit.dwellEff < trip->dwellPlan;
+            }
         }
     }
 }
