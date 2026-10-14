@@ -3,12 +3,14 @@
 #include "AppSession.h"
 #include "BoardWidget.h"
 #include "LineView.h"
+#include "MonitoringPanel.h"
 #include "PlaybackController.h"
 #include "PlaybackPanel.h"
 
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QSplitter>
 #include <QStatusBar>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -18,7 +20,7 @@ namespace ubahn::app {
 MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWindow(parent) {
     setObjectName("mainWindow");
     setWindowTitle(tr("Untergrundbahn Simulator"));
-    resize(1000, 650);
+    resize(1250, 720);
 
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
@@ -27,23 +29,37 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
     playbackPanel_->setInitialValues(params.rate, params.stepSec);
     layout->addWidget(playbackPanel_);
 
-    lineView_ = new LineView(central);
+    auto* splitter = new QSplitter(Qt::Horizontal, central);
+    splitter->setObjectName("mainSplitter");
+    auto* lineArea = new QWidget(splitter);
+    auto* lineLayout = new QVBoxLayout(lineArea);
+    lineLayout->setContentsMargins(0, 0, 0, 0);
+
+    lineView_ = new LineView(lineArea);
     lineView_->setLine(params.line);
-    layout->addWidget(lineView_, 1);
+    lineLayout->addWidget(lineView_, 1);
 
     auto* selectorLayout = new QHBoxLayout;
-    selectorLayout->addWidget(new QLabel(tr("Станция:"), central));
-    stationSelector_ = new QComboBox(central);
+    selectorLayout->addWidget(new QLabel(tr("Станция:"), lineArea));
+    stationSelector_ = new QComboBox(lineArea);
     stationSelector_->setObjectName("boardStationSelector");
     for (const auto& stationName : params.line.stationNames) {
         stationSelector_->addItem(QString::fromStdString(stationName));
     }
     selectorLayout->addWidget(stationSelector_);
     selectorLayout->addStretch();
-    layout->addLayout(selectorLayout);
+    lineLayout->addLayout(selectorLayout);
 
-    boardWidget_ = new BoardWidget(central);
-    layout->addWidget(boardWidget_);
+    boardWidget_ = new BoardWidget(lineArea);
+    lineLayout->addWidget(boardWidget_);
+    splitter->addWidget(lineArea);
+
+    monitoringPanel_ = new MonitoringPanel(splitter);
+    monitoringPanel_->setLine(params.line);
+    splitter->addWidget(monitoringPanel_);
+    splitter->setStretchFactor(0, 3);
+    splitter->setStretchFactor(1, 2);
+    layout->addWidget(splitter, 1);
     setCentralWidget(central);
 
     const auto stationCount = params.line.stationNames.size();
@@ -66,6 +82,8 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
     });
     connect(session_, &AppSession::chunkReady, playback_, &PlaybackController::addChunk);
     connect(playback_, &PlaybackController::stateChanged, this, &MainWindow::refreshView);
+    connect(playback_, &PlaybackController::delayNoticesReady, this,
+            [this] { monitoringPanel_->showDelayNotices(playback_->state().delayNotices()); });
     connect(playback_, &PlaybackController::timeChanged, this, [this](api::SimTime time) {
         refreshView();
         statusBar()->showMessage(tr("Модельное время: %1 с").arg(time));
@@ -85,6 +103,7 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
 void MainWindow::refreshView() {
     lineView_->setState(playback_->state(), playback_->exactTime());
     playbackPanel_->setModelState(playback_->currentTime(), playback_->state().clock());
+    monitoringPanel_->setState(playback_->state());
     refreshBoard();
 }
 

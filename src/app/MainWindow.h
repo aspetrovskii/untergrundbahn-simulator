@@ -11,6 +11,7 @@ namespace ubahn::app {
 class AppSession;
 class BoardWidget;
 class LineView;
+class MonitoringPanel;
 class PlaybackController;
 class PlaybackPanel;
 
@@ -25,6 +26,7 @@ private:
     void refreshBoard();
 
     LineView* lineView_ = nullptr;
+    MonitoringPanel* monitoringPanel_ = nullptr;
     PlaybackPanel* playbackPanel_ = nullptr;
     BoardWidget* boardWidget_ = nullptr;
     QComboBox* stationSelector_ = nullptr;

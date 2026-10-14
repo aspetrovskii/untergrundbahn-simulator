@@ -9,6 +9,8 @@ set(UBAHN_APP_SOURCES
     LineView.h
     MainWindow.cpp
     MainWindow.h
+    MonitoringPanel.cpp
+    MonitoringPanel.h
     PlaybackController.cpp
     PlaybackController.h
     PlaybackPanel.cpp

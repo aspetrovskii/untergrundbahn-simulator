@@ -51,6 +51,15 @@ target_link_libraries(ubahn_app_setup_editor_tests PRIVATE
 ubahn_set_warnings(ubahn_app_setup_editor_tests)
 add_test(NAME ubahn_app_setup_editor_tests COMMAND ubahn_app_setup_editor_tests)
 
+qt_add_executable(ubahn_app_monitoring_tests tst_MonitoringPanel.cpp)
+target_link_libraries(ubahn_app_monitoring_tests PRIVATE
+    ubahn_app_lib
+    Qt6::Test
+    Qt6::Widgets
+)
+ubahn_set_warnings(ubahn_app_monitoring_tests)
+add_test(NAME ubahn_app_monitoring_tests COMMAND ubahn_app_monitoring_tests)
+
 if(NOT TARGET ubahn_worker)
     qt_add_executable(ubahn_app_session_tests tst_AppSession.cpp)
     target_link_libraries(ubahn_app_session_tests PRIVATE
@@ -76,6 +85,7 @@ set_tests_properties(
     ubahn_app_board_tests
     ubahn_app_playback_panel_tests
     ubahn_app_setup_editor_tests
+    ubahn_app_monitoring_tests
     PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
