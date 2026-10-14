@@ -1,6 +1,7 @@
 #include "BoardWidget.h"
 #include "LineView.h"
 #include "MainWindow.h"
+#include "PlaybackPanel.h"
 #include "SetupDialog.h"
 #include "api/Version.h"
 
@@ -57,6 +58,7 @@ void AppShellTest::mainWindowHasLineView() {
 
     QVERIFY(window.findChild<ubahn::app::LineView*>("lineView") != nullptr);
     QVERIFY(window.findChild<ubahn::app::BoardWidget*>("boardWidget") != nullptr);
+    QVERIFY(window.findChild<ubahn::app::PlaybackPanel*>("playbackPanel") != nullptr);
     auto* stationSelector = window.findChild<QComboBox*>("boardStationSelector");
     QVERIFY(stationSelector != nullptr);
     QCOMPARE(stationSelector->count(), 8);

@@ -9,6 +9,8 @@ set(UBAHN_APP_SOURCES
     MainWindow.h
     PlaybackController.cpp
     PlaybackController.h
+    PlaybackPanel.cpp
+    PlaybackPanel.h
     SetupDialog.cpp
     SetupDialog.h
     SimulationState.cpp

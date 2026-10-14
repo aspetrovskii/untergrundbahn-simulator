@@ -4,6 +4,7 @@
 #include "BoardWidget.h"
 #include "LineView.h"
 #include "PlaybackController.h"
+#include "PlaybackPanel.h"
 
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -21,6 +22,10 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
 
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
+
+    playbackPanel_ = new PlaybackPanel(central);
+    playbackPanel_->setInitialValues(params.rate, params.stepSec);
+    layout->addWidget(playbackPanel_);
 
     lineView_ = new LineView(central);
     lineView_->setLine(params.line);
@@ -48,6 +53,14 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
     playback_->setRate(params.rate);
     session_ = new AppSession(this);
 
+    connect(playbackPanel_, &PlaybackPanel::rateChanged, playback_, &PlaybackController::setRate);
+    connect(playbackPanel_, &PlaybackPanel::rateChanged, session_, &AppSession::setRate);
+    connect(playbackPanel_, &PlaybackPanel::stepChanged, session_, &AppSession::setStep);
+    connect(playbackPanel_, &PlaybackPanel::seekForwardRequested, playback_,
+            &PlaybackController::seekForward);
+    connect(playbackPanel_, &PlaybackPanel::seekForwardRequested, session_,
+            &AppSession::seekForward);
+
     connect(session_, &AppSession::started, this, [this](const api::RunInfo& info) {
         statusBar()->showMessage(tr("Запуск с зерном %1").arg(info.seed));
     });
@@ -71,6 +84,7 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
 
 void MainWindow::refreshView() {
     lineView_->setState(playback_->state(), playback_->exactTime());
+    playbackPanel_->setModelState(playback_->currentTime(), playback_->state().clock());
     refreshBoard();
 }
 
