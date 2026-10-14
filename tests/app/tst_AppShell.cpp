@@ -3,6 +3,7 @@
 #include "MainWindow.h"
 #include "MonitoringPanel.h"
 #include "PlaybackPanel.h"
+#include "RuntimeScheduleEditor.h"
 #include "SetupDialog.h"
 #include "SummaryWidget.h"
 #include "api/Version.h"
@@ -62,6 +63,8 @@ void AppShellTest::mainWindowHasLineView() {
     QVERIFY(window.findChild<ubahn::app::BoardWidget*>("boardWidget") != nullptr);
     QVERIFY(window.findChild<ubahn::app::PlaybackPanel*>("playbackPanel") != nullptr);
     QVERIFY(window.findChild<ubahn::app::MonitoringPanel*>("monitoringPanel") != nullptr);
+    QVERIFY(window.findChild<ubahn::app::RuntimeScheduleEditor*>("runtimeScheduleEditor") !=
+            nullptr);
     QVERIFY(window.findChild<ubahn::app::SummaryWidget*>("summaryWidget") != nullptr);
     QVERIFY(window.findChild<QPushButton*>("stopButton") != nullptr);
     auto* stationSelector = window.findChild<QComboBox*>("boardStationSelector");

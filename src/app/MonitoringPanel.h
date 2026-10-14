@@ -15,6 +15,7 @@ class QTimer;
 namespace ubahn::app {
 
 class SummaryWidget;
+class RuntimeScheduleEditor;
 
 class MonitoringPanel : public QWidget {
     Q_OBJECT
@@ -23,9 +24,13 @@ public:
     explicit MonitoringPanel(QWidget* parent = nullptr);
 
     void setLine(const api::LineConfig& line);
+    void setSchedule(const api::ScheduleConfig& schedule);
     void setState(const SimulationState& state);
     void showDelayNotices(const std::vector<api::DelayNotice>& notices);
     void setSummary(const api::SimSummary& summary);
+
+signals:
+    void scheduleApplyRequested(const ubahn::api::ScheduleConfig& schedule);
 
 private:
     void updateTrains(const std::map<int, api::TrainUpdate>& trains);
@@ -42,6 +47,7 @@ private:
     QTableWidget* warnings_ = nullptr;
     QTimer* delayTimer_ = nullptr;
     SummaryWidget* summary_ = nullptr;
+    RuntimeScheduleEditor* scheduleEditor_ = nullptr;
     int summaryTab_ = -1;
 };
 

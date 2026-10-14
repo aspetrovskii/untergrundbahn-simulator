@@ -1,5 +1,6 @@
 #include "MonitoringPanel.h"
 
+#include "RuntimeScheduleEditor.h"
 #include "SummaryWidget.h"
 
 #include <QHeaderView>
@@ -67,6 +68,11 @@ MonitoringPanel::MonitoringPanel(QWidget* parent) : QWidget(parent) {
     warnings_->setSelectionBehavior(QAbstractItemView::SelectRows);
     tabs_->addTab(warnings_, tr("Предупреждения"));
 
+    scheduleEditor_ = new RuntimeScheduleEditor(tabs_);
+    tabs_->addTab(scheduleEditor_, tr("Расписание"));
+    connect(scheduleEditor_, &RuntimeScheduleEditor::scheduleAccepted, this,
+            &MonitoringPanel::scheduleApplyRequested);
+
     summary_ = new SummaryWidget(tabs_);
     summaryTab_ = tabs_->addTab(summary_, tr("Итоги"));
     layout->addWidget(tabs_);
@@ -80,7 +86,12 @@ MonitoringPanel::MonitoringPanel(QWidget* parent) : QWidget(parent) {
 
 void MonitoringPanel::setLine(const api::LineConfig& line) {
     line_ = line;
+    scheduleEditor_->setLine(line);
     summary_->setLine(line);
+}
+
+void MonitoringPanel::setSchedule(const api::ScheduleConfig& schedule) {
+    scheduleEditor_->setSchedule(schedule);
 }
 
 void MonitoringPanel::setSummary(const api::SimSummary& summary) {

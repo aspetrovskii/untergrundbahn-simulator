@@ -56,6 +56,7 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
 
     monitoringPanel_ = new MonitoringPanel(splitter);
     monitoringPanel_->setLine(params.line);
+    monitoringPanel_->setSchedule(params.schedule);
     splitter->addWidget(monitoringPanel_);
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
@@ -77,6 +78,10 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
     connect(playbackPanel_, &PlaybackPanel::seekForwardRequested, session_,
             &AppSession::seekForward);
     connect(playbackPanel_, &PlaybackPanel::stopRequested, session_, &AppSession::stop);
+    connect(monitoringPanel_, &MonitoringPanel::scheduleApplyRequested, session_,
+            &AppSession::applySchedule);
+    connect(monitoringPanel_, &MonitoringPanel::scheduleApplyRequested, this,
+            [this] { statusBar()->showMessage(tr("Новое расписание передано симуляции")); });
 
     connect(session_, &AppSession::started, this, [this](const api::RunInfo& info) {
         statusBar()->showMessage(tr("Запуск с зерном %1").arg(info.seed));
