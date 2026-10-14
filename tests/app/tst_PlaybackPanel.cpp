@@ -14,6 +14,7 @@ private slots:
     void pausesAndResumes();
     void selectsStep();
     void requestsForwardSeek();
+    void requestsStopAndPauses();
 };
 
 void PlaybackPanelTest::showsModelClockAndWindow() {
@@ -75,6 +76,21 @@ void PlaybackPanelTest::requestsForwardSeek() {
 
     QCOMPARE(seekSpy.count(), 1);
     QCOMPARE(seekSpy.takeFirst().at(0).value<ubahn::api::SimTime>(), ubahn::api::SimTime{1300});
+}
+
+void PlaybackPanelTest::requestsStopAndPauses() {
+    ubahn::app::PlaybackPanel panel;
+    panel.setInitialValues(1.0, 60);
+    QSignalSpy rateSpy(&panel, &ubahn::app::PlaybackPanel::rateChanged);
+    QSignalSpy stopSpy(&panel, &ubahn::app::PlaybackPanel::stopRequested);
+    auto* stopButton = panel.findChild<QPushButton*>("stopButton");
+
+    QTest::mouseClick(stopButton, Qt::LeftButton);
+
+    QCOMPARE(rateSpy.count(), 1);
+    QCOMPARE(rateSpy.takeFirst().at(0).toDouble(), 0.0);
+    QCOMPARE(stopSpy.count(), 1);
+    QVERIFY(!stopButton->isEnabled());
 }
 
 QTEST_MAIN(PlaybackPanelTest)

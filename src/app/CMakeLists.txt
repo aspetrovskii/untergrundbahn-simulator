@@ -21,6 +21,8 @@ set(UBAHN_APP_SOURCES
     SetupDialog.h
     SimulationState.cpp
     SimulationState.h
+    SummaryWidget.cpp
+    SummaryWidget.h
 )
 
 if(TARGET ubahn_worker)

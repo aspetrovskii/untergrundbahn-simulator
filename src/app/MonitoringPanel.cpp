@@ -1,5 +1,7 @@
 #include "MonitoringPanel.h"
 
+#include "SummaryWidget.h"
+
 #include <QHeaderView>
 #include <QLabel>
 #include <QTabWidget>
@@ -64,6 +66,9 @@ MonitoringPanel::MonitoringPanel(QWidget* parent) : QWidget(parent) {
     warnings_->verticalHeader()->setVisible(false);
     warnings_->setSelectionBehavior(QAbstractItemView::SelectRows);
     tabs_->addTab(warnings_, tr("Предупреждения"));
+
+    summary_ = new SummaryWidget(tabs_);
+    summaryTab_ = tabs_->addTab(summary_, tr("Итоги"));
     layout->addWidget(tabs_);
 
     delayTimer_ = new QTimer(this);
@@ -75,6 +80,12 @@ MonitoringPanel::MonitoringPanel(QWidget* parent) : QWidget(parent) {
 
 void MonitoringPanel::setLine(const api::LineConfig& line) {
     line_ = line;
+    summary_->setLine(line);
+}
+
+void MonitoringPanel::setSummary(const api::SimSummary& summary) {
+    summary_->setSummary(summary);
+    tabs_->setCurrentIndex(summaryTab_);
 }
 
 void MonitoringPanel::setState(const SimulationState& state) {

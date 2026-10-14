@@ -14,6 +14,8 @@ class QTimer;
 
 namespace ubahn::app {
 
+class SummaryWidget;
+
 class MonitoringPanel : public QWidget {
     Q_OBJECT
 
@@ -23,6 +25,7 @@ public:
     void setLine(const api::LineConfig& line);
     void setState(const SimulationState& state);
     void showDelayNotices(const std::vector<api::DelayNotice>& notices);
+    void setSummary(const api::SimSummary& summary);
 
 private:
     void updateTrains(const std::map<int, api::TrainUpdate>& trains);
@@ -38,6 +41,8 @@ private:
     QTableWidget* trains_ = nullptr;
     QTableWidget* warnings_ = nullptr;
     QTimer* delayTimer_ = nullptr;
+    SummaryWidget* summary_ = nullptr;
+    int summaryTab_ = -1;
 };
 
 } // namespace ubahn::app

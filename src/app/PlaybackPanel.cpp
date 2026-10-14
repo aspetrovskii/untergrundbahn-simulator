@@ -99,6 +99,10 @@ PlaybackPanel::PlaybackPanel(QWidget* parent) : QFrame(parent) {
     auto* seekButton = new QPushButton(tr("Перемотать"), this);
     seekButton->setObjectName("seekButton");
     controls->addWidget(seekButton);
+
+    stopButton_ = new QPushButton(tr("Остановить"), this);
+    stopButton_->setObjectName("stopButton");
+    controls->addWidget(stopButton_);
     controls->addStretch();
     layout->addLayout(controls);
 
@@ -107,6 +111,7 @@ PlaybackPanel::PlaybackPanel(QWidget* parent) : QFrame(parent) {
     connect(stepCombo_, &QComboBox::currentIndexChanged, this,
             [this] { emit stepChanged(stepCombo_->currentData().toInt()); });
     connect(seekButton, &QPushButton::clicked, this, &PlaybackPanel::requestSeek);
+    connect(stopButton_, &QPushButton::clicked, this, &PlaybackPanel::requestStop);
 
     setInitialValues(1.0, 60);
 }
@@ -164,6 +169,17 @@ void PlaybackPanel::selectRate() {
 
 void PlaybackPanel::requestSeek() {
     emit seekForwardRequested(modelTime_ + seekCombo_->currentData().toInt());
+}
+
+void PlaybackPanel::requestStop() {
+    if (rate_ > 0.0) {
+        resumeRate_ = rate_;
+        rate_ = 0.0;
+        pauseButton_->setText(tr("Продолжить"));
+        emit rateChanged(0.0);
+    }
+    stopButton_->setEnabled(false);
+    emit stopRequested();
 }
 
 void PlaybackPanel::updateWindowText(const std::optional<api::ClockUpdate>& clock) {

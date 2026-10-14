@@ -76,6 +76,7 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
             &PlaybackController::seekForward);
     connect(playbackPanel_, &PlaybackPanel::seekForwardRequested, session_,
             &AppSession::seekForward);
+    connect(playbackPanel_, &PlaybackPanel::stopRequested, session_, &AppSession::stop);
 
     connect(session_, &AppSession::started, this, [this](const api::RunInfo& info) {
         statusBar()->showMessage(tr("Запуск с зерном %1").arg(info.seed));
@@ -89,8 +90,10 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
         statusBar()->showMessage(tr("Модельное время: %1 с").arg(time));
     });
     connect(stationSelector_, &QComboBox::currentIndexChanged, this, &MainWindow::refreshBoard);
-    connect(session_, &AppSession::summaryReady, this, [this](const api::SimSummary&) {
-        statusBar()->showMessage(tr("Статические примеры API получены"));
+    connect(session_, &AppSession::summaryReady, this, [this](const api::SimSummary& summary) {
+        monitoringPanel_->setSummary(summary);
+        statusBar()->showMessage(summary.completed ? tr("Моделирование завершено")
+                                                   : tr("Моделирование остановлено"));
     });
     connect(session_, &AppSession::errorOccurred, this, [this](const api::RuntimeError& error) {
         statusBar()->showMessage(QString::fromStdString(error.message));

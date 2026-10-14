@@ -24,11 +24,13 @@ signals:
     void rateChanged(double rate);
     void stepChanged(int stepSec);
     void seekForwardRequested(ubahn::api::SimTime target);
+    void stopRequested();
 
 private:
     void togglePause();
     void selectRate();
     void requestSeek();
+    void requestStop();
     void updateWindowText(const std::optional<api::ClockUpdate>& clock);
 
     QLabel* clockLabel_ = nullptr;
@@ -37,6 +39,7 @@ private:
     QComboBox* rateCombo_ = nullptr;
     QComboBox* stepCombo_ = nullptr;
     QComboBox* seekCombo_ = nullptr;
+    QPushButton* stopButton_ = nullptr;
     api::SimTime modelTime_ = 0;
     double rate_ = 1.0;
     double resumeRate_ = 1.0;

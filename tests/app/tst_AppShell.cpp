@@ -4,6 +4,7 @@
 #include "MonitoringPanel.h"
 #include "PlaybackPanel.h"
 #include "SetupDialog.h"
+#include "SummaryWidget.h"
 #include "api/Version.h"
 
 #include <QComboBox>
@@ -61,6 +62,8 @@ void AppShellTest::mainWindowHasLineView() {
     QVERIFY(window.findChild<ubahn::app::BoardWidget*>("boardWidget") != nullptr);
     QVERIFY(window.findChild<ubahn::app::PlaybackPanel*>("playbackPanel") != nullptr);
     QVERIFY(window.findChild<ubahn::app::MonitoringPanel*>("monitoringPanel") != nullptr);
+    QVERIFY(window.findChild<ubahn::app::SummaryWidget*>("summaryWidget") != nullptr);
+    QVERIFY(window.findChild<QPushButton*>("stopButton") != nullptr);
     auto* stationSelector = window.findChild<QComboBox*>("boardStationSelector");
     QVERIFY(stationSelector != nullptr);
     QCOMPARE(stationSelector->count(), 8);
