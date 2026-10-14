@@ -15,6 +15,15 @@ target_link_libraries(ubahn_app_playback_tests PRIVATE
 ubahn_set_warnings(ubahn_app_playback_tests)
 add_test(NAME ubahn_app_playback_tests COMMAND ubahn_app_playback_tests)
 
+qt_add_executable(ubahn_app_line_view_tests tst_LineView.cpp)
+target_link_libraries(ubahn_app_line_view_tests PRIVATE
+    ubahn_app_lib
+    Qt6::Test
+    Qt6::Widgets
+)
+ubahn_set_warnings(ubahn_app_line_view_tests)
+add_test(NAME ubahn_app_line_view_tests COMMAND ubahn_app_line_view_tests)
+
 if(NOT TARGET ubahn_worker)
     qt_add_executable(ubahn_app_session_tests tst_AppSession.cpp)
     target_link_libraries(ubahn_app_session_tests PRIVATE
@@ -34,4 +43,6 @@ if(NOT TARGET ubahn_worker)
     set_tests_properties(ubahn_app_mock_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
-set_tests_properties(ubahn_app_shell_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+set_tests_properties(ubahn_app_shell_tests ubahn_app_line_view_tests PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)

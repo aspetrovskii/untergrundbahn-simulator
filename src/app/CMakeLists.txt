@@ -1,6 +1,8 @@
 set(UBAHN_APP_SOURCES
     AppSession.cpp
     AppSession.h
+    LineView.cpp
+    LineView.h
     MainWindow.cpp
     MainWindow.h
     PlaybackController.cpp

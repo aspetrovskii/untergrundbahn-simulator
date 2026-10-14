@@ -1,3 +1,4 @@
+#include "LineView.h"
 #include "MainWindow.h"
 #include "SetupDialog.h"
 #include "api/Version.h"
@@ -15,7 +16,7 @@ private slots:
     void apiVersionIsExpected();
     void setupDialogShowsPresets();
     void setupDialogAcceptsSelection();
-    void mainWindowHasPlaceholder();
+    void mainWindowHasLineView();
 };
 
 void AppShellTest::apiVersionIsExpected() {
@@ -49,11 +50,11 @@ void AppShellTest::setupDialogAcceptsSelection() {
     QCOMPARE(dialog.selectedParams().line.stationNames.size(), std::size_t{20});
 }
 
-void AppShellTest::mainWindowHasPlaceholder() {
+void AppShellTest::mainWindowHasLineView() {
     ubahn::app::SetupDialog dialog;
     ubahn::app::MainWindow window(dialog.selectedParams());
 
-    QVERIFY(window.findChild<QLabel*>("mainWindowPlaceholder") != nullptr);
+    QVERIFY(window.findChild<ubahn::app::LineView*>("lineView") != nullptr);
     QCOMPARE(window.windowTitle(), QString("Untergrundbahn Simulator"));
 }
 

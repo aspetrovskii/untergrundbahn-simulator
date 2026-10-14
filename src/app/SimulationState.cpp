@@ -4,6 +4,7 @@ namespace ubahn::app {
 
 void SimulationState::clear() {
     trains_.clear();
+    trainUpdateTimes_.clear();
     boards_.clear();
     clock_.reset();
     warnings_.clear();
@@ -13,6 +14,7 @@ void SimulationState::clear() {
 void SimulationState::apply(const api::ViewDelta& delta, bool includeDelayNotices) {
     for (const auto& train : delta.trains) {
         trains_[train.id] = train;
+        trainUpdateTimes_[train.id] = delta.t;
     }
     for (const auto& board : delta.boards) {
         const auto key = std::make_pair(static_cast<int>(board.dir), board.station);
@@ -31,6 +33,11 @@ void SimulationState::apply(const api::ViewDelta& delta, bool includeDelayNotice
 
 const std::map<int, api::TrainUpdate>& SimulationState::trains() const {
     return trains_;
+}
+
+api::SimTime SimulationState::trainUpdateTime(int trainId) const {
+    const auto time = trainUpdateTimes_.find(trainId);
+    return time == trainUpdateTimes_.end() ? 0 : time->second;
 }
 
 const std::map<std::pair<int, int>, api::BoardUpdate>& SimulationState::boards() const {

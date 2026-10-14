@@ -15,6 +15,7 @@ public:
     void apply(const api::ViewDelta& delta, bool includeDelayNotices = true);
 
     const std::map<int, api::TrainUpdate>& trains() const;
+    api::SimTime trainUpdateTime(int trainId) const;
     const std::map<std::pair<int, int>, api::BoardUpdate>& boards() const;
     const std::optional<api::ClockUpdate>& clock() const;
     const std::vector<api::Warning>& warnings() const;
@@ -22,6 +23,7 @@ public:
 
 private:
     std::map<int, api::TrainUpdate> trains_;
+    std::map<int, api::SimTime> trainUpdateTimes_;
     std::map<std::pair<int, int>, api::BoardUpdate> boards_;
     std::optional<api::ClockUpdate> clock_;
     std::vector<api::Warning> warnings_;

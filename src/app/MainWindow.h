@@ -4,11 +4,10 @@
 
 #include <QMainWindow>
 
-class QLabel;
-
 namespace ubahn::app {
 
 class AppSession;
+class LineView;
 class PlaybackController;
 
 class MainWindow : public QMainWindow {
@@ -18,7 +17,7 @@ public:
     explicit MainWindow(const api::SimParams& params, QWidget* parent = nullptr);
 
 private:
-    QLabel* placeholder_ = nullptr;
+    LineView* lineView_ = nullptr;
     AppSession* session_ = nullptr;
     PlaybackController* playback_ = nullptr;
 };
