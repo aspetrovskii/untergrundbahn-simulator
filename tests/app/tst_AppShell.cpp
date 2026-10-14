@@ -1,8 +1,10 @@
+#include "AppSession.h"
 #include "BoardWidget.h"
 #include "LineView.h"
 #include "MainWindow.h"
 #include "MonitoringPanel.h"
 #include "PlaybackPanel.h"
+#include "RuntimeErrorBanner.h"
 #include "RuntimeScheduleEditor.h"
 #include "SetupDialog.h"
 #include "SummaryWidget.h"
@@ -22,6 +24,7 @@ private slots:
     void setupDialogShowsPresets();
     void setupDialogAcceptsSelection();
     void mainWindowHasLineView();
+    void mainWindowHandlesInternalError();
 };
 
 void AppShellTest::apiVersionIsExpected() {
@@ -65,12 +68,29 @@ void AppShellTest::mainWindowHasLineView() {
     QVERIFY(window.findChild<ubahn::app::MonitoringPanel*>("monitoringPanel") != nullptr);
     QVERIFY(window.findChild<ubahn::app::RuntimeScheduleEditor*>("runtimeScheduleEditor") !=
             nullptr);
+    QVERIFY(window.findChild<ubahn::app::RuntimeErrorBanner*>("runtimeErrorBanner") != nullptr);
     QVERIFY(window.findChild<ubahn::app::SummaryWidget*>("summaryWidget") != nullptr);
     QVERIFY(window.findChild<QPushButton*>("stopButton") != nullptr);
     auto* stationSelector = window.findChild<QComboBox*>("boardStationSelector");
     QVERIFY(stationSelector != nullptr);
     QCOMPARE(stationSelector->count(), 8);
     QCOMPARE(window.windowTitle(), QString("Untergrundbahn Simulator"));
+}
+
+void AppShellTest::mainWindowHandlesInternalError() {
+    ubahn::app::SetupDialog dialog;
+    ubahn::app::MainWindow window(dialog.selectedParams());
+    ubahn::api::RuntimeError error;
+    error.code = ubahn::api::ErrorCode::InternalError;
+    error.message = "Тестовая внутренняя ошибка";
+
+    window.findChild<ubahn::app::AppSession*>()->errorOccurred(error);
+
+    auto* banner = window.findChild<ubahn::app::RuntimeErrorBanner*>("runtimeErrorBanner");
+    QVERIFY(!banner->isHidden());
+    QVERIFY(banner->findChild<QLabel*>("runtimeErrorMessage")->text().contains("Тестовая"));
+    QVERIFY(!window.findChild<QPushButton*>("pauseButton")->isEnabled());
+    QVERIFY(window.findChild<QPushButton*>("restartSimulationButton")->isVisibleTo(&window));
 }
 
 QTEST_MAIN(AppShellTest)

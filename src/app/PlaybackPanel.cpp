@@ -96,9 +96,9 @@ PlaybackPanel::PlaybackPanel(QWidget* parent) : QFrame(parent) {
     seekCombo_->addItem(tr("1 ч"), 60 * 60);
     controls->addWidget(seekCombo_);
 
-    auto* seekButton = new QPushButton(tr("Перемотать"), this);
-    seekButton->setObjectName("seekButton");
-    controls->addWidget(seekButton);
+    seekButton_ = new QPushButton(tr("Перемотать"), this);
+    seekButton_->setObjectName("seekButton");
+    controls->addWidget(seekButton_);
 
     stopButton_ = new QPushButton(tr("Остановить"), this);
     stopButton_->setObjectName("stopButton");
@@ -110,10 +110,19 @@ PlaybackPanel::PlaybackPanel(QWidget* parent) : QFrame(parent) {
     connect(rateCombo_, &QComboBox::currentIndexChanged, this, &PlaybackPanel::selectRate);
     connect(stepCombo_, &QComboBox::currentIndexChanged, this,
             [this] { emit stepChanged(stepCombo_->currentData().toInt()); });
-    connect(seekButton, &QPushButton::clicked, this, &PlaybackPanel::requestSeek);
+    connect(seekButton_, &QPushButton::clicked, this, &PlaybackPanel::requestSeek);
     connect(stopButton_, &QPushButton::clicked, this, &PlaybackPanel::requestStop);
 
     setInitialValues(1.0, 60);
+}
+
+void PlaybackPanel::setFinished(bool finished) {
+    pauseButton_->setEnabled(!finished);
+    rateCombo_->setEnabled(!finished);
+    stepCombo_->setEnabled(!finished);
+    seekCombo_->setEnabled(!finished);
+    seekButton_->setEnabled(!finished);
+    stopButton_->setEnabled(!finished);
 }
 
 void PlaybackPanel::setInitialValues(double rate, int stepSec) {

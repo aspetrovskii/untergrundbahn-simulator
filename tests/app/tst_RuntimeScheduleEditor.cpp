@@ -13,6 +13,7 @@ class RuntimeScheduleEditorTest : public QObject {
 private slots:
     void validScheduleIsAccepted();
     void invalidScheduleIsRejected();
+    void backendErrorsAreShown();
 };
 
 void RuntimeScheduleEditorTest::validScheduleIsAccepted() {
@@ -56,6 +57,18 @@ void RuntimeScheduleEditorTest::invalidScheduleIsRejected() {
     auto* status = editor.findChild<QLabel*>("runtimeScheduleStatus");
     QVERIFY(status->text().contains("Исправьте ошибки"));
     QVERIFY(status->text().contains("ЧЧ:ММ"));
+}
+
+void RuntimeScheduleEditorTest::backendErrorsAreShown() {
+    ubahn::app::RuntimeScheduleEditor editor;
+    ubahn::api::ValidationIssue issue;
+    issue.message = "Интервал меньше допустимого";
+
+    editor.showApiErrors({issue});
+
+    auto* status = editor.findChild<QLabel*>("runtimeScheduleStatus");
+    QVERIFY(!status->isHidden());
+    QVERIFY(status->text().contains("Интервал меньше допустимого"));
 }
 
 QTEST_MAIN(RuntimeScheduleEditorTest)

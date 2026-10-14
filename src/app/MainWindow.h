@@ -14,6 +14,7 @@ class LineView;
 class MonitoringPanel;
 class PlaybackController;
 class PlaybackPanel;
+class RuntimeErrorBanner;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -24,6 +25,8 @@ public:
 private:
     void refreshView();
     void refreshBoard();
+    void handleRuntimeError(const api::RuntimeError& error);
+    void restartSimulation();
 
     LineView* lineView_ = nullptr;
     MonitoringPanel* monitoringPanel_ = nullptr;
@@ -32,6 +35,11 @@ private:
     QComboBox* stationSelector_ = nullptr;
     AppSession* session_ = nullptr;
     PlaybackController* playback_ = nullptr;
+    RuntimeErrorBanner* errorBanner_ = nullptr;
+    api::SimParams params_;
+    std::optional<uint64_t> lastSeed_;
+    std::optional<api::ScheduleConfig> scheduleBeforeChange_;
+    bool hasStarted_ = false;
 };
 
 } // namespace ubahn::app

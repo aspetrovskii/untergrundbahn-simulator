@@ -15,6 +15,7 @@ private slots:
     void selectsStep();
     void requestsForwardSeek();
     void requestsStopAndPauses();
+    void disablesControlsWhenFinished();
 };
 
 void PlaybackPanelTest::showsModelClockAndWindow() {
@@ -91,6 +92,22 @@ void PlaybackPanelTest::requestsStopAndPauses() {
     QCOMPARE(rateSpy.takeFirst().at(0).toDouble(), 0.0);
     QCOMPARE(stopSpy.count(), 1);
     QVERIFY(!stopButton->isEnabled());
+}
+
+void PlaybackPanelTest::disablesControlsWhenFinished() {
+    ubahn::app::PlaybackPanel panel;
+    panel.setFinished(true);
+
+    QVERIFY(!panel.findChild<QPushButton*>("pauseButton")->isEnabled());
+    QVERIFY(!panel.findChild<QComboBox*>("rateCombo")->isEnabled());
+    QVERIFY(!panel.findChild<QComboBox*>("stepCombo")->isEnabled());
+    QVERIFY(!panel.findChild<QComboBox*>("seekCombo")->isEnabled());
+    QVERIFY(!panel.findChild<QPushButton*>("seekButton")->isEnabled());
+    QVERIFY(!panel.findChild<QPushButton*>("stopButton")->isEnabled());
+
+    panel.setFinished(false);
+    QVERIFY(panel.findChild<QPushButton*>("pauseButton")->isEnabled());
+    QVERIFY(panel.findChild<QPushButton*>("stopButton")->isEnabled());
 }
 
 QTEST_MAIN(PlaybackPanelTest)

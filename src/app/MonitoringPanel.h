@@ -28,6 +28,8 @@ public:
     void setState(const SimulationState& state);
     void showDelayNotices(const std::vector<api::DelayNotice>& notices);
     void setSummary(const api::SimSummary& summary);
+    void showScheduleErrors(const std::vector<api::ValidationIssue>& issues);
+    void setRunning(bool running);
 
 signals:
     void scheduleApplyRequested(const ubahn::api::ScheduleConfig& schedule);
@@ -48,6 +50,7 @@ private:
     QTimer* delayTimer_ = nullptr;
     SummaryWidget* summary_ = nullptr;
     RuntimeScheduleEditor* scheduleEditor_ = nullptr;
+    int scheduleTab_ = -1;
     int summaryTab_ = -1;
 };
 

@@ -19,6 +19,7 @@ public:
 
     void setInitialValues(double rate, int stepSec);
     void setModelState(api::SimTime modelTime, const std::optional<api::ClockUpdate>& clock);
+    void setFinished(bool finished);
 
 signals:
     void rateChanged(double rate);
@@ -39,6 +40,7 @@ private:
     QComboBox* rateCombo_ = nullptr;
     QComboBox* stepCombo_ = nullptr;
     QComboBox* seekCombo_ = nullptr;
+    QPushButton* seekButton_ = nullptr;
     QPushButton* stopButton_ = nullptr;
     api::SimTime modelTime_ = 0;
     double rate_ = 1.0;

@@ -69,7 +69,7 @@ MonitoringPanel::MonitoringPanel(QWidget* parent) : QWidget(parent) {
     tabs_->addTab(warnings_, tr("Предупреждения"));
 
     scheduleEditor_ = new RuntimeScheduleEditor(tabs_);
-    tabs_->addTab(scheduleEditor_, tr("Расписание"));
+    scheduleTab_ = tabs_->addTab(scheduleEditor_, tr("Расписание"));
     connect(scheduleEditor_, &RuntimeScheduleEditor::scheduleAccepted, this,
             &MonitoringPanel::scheduleApplyRequested);
 
@@ -97,6 +97,19 @@ void MonitoringPanel::setSchedule(const api::ScheduleConfig& schedule) {
 void MonitoringPanel::setSummary(const api::SimSummary& summary) {
     summary_->setSummary(summary);
     tabs_->setCurrentIndex(summaryTab_);
+}
+
+void MonitoringPanel::showScheduleErrors(const std::vector<api::ValidationIssue>& issues) {
+    scheduleEditor_->showApiErrors(issues);
+    tabs_->setCurrentIndex(scheduleTab_);
+}
+
+void MonitoringPanel::setRunning(bool running) {
+    scheduleEditor_->setEditable(running);
+    if (running) {
+        delayBanner_->hide();
+        tabs_->setCurrentIndex(0);
+    }
 }
 
 void MonitoringPanel::setState(const SimulationState& state) {

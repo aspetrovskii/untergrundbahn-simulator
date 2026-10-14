@@ -6,24 +6,43 @@
 #include "MonitoringPanel.h"
 #include "PlaybackController.h"
 #include "PlaybackPanel.h"
+#include "RuntimeErrorBanner.h"
 
 #include <QComboBox>
+#include <QDebug>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QStringList>
 #include <QVBoxLayout>
 #include <QWidget>
 
 namespace ubahn::app {
+namespace {
 
-MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWindow(parent) {
+QString validationDetails(const std::vector<api::ValidationIssue>& issues,
+                          const QString& fallback) {
+    QStringList messages;
+    for (const auto& issue : issues) {
+        messages.push_back(QString::fromStdString(issue.message));
+    }
+    return messages.empty() ? fallback : messages.join(QStringLiteral("\n• ")).prepend("• ");
+}
+
+} // namespace
+
+MainWindow::MainWindow(const api::SimParams& params, QWidget* parent)
+    : QMainWindow(parent), params_(params) {
     setObjectName("mainWindow");
     setWindowTitle(tr("Untergrundbahn Simulator"));
     resize(1250, 720);
 
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
+
+    errorBanner_ = new RuntimeErrorBanner(central);
+    layout->addWidget(errorBanner_);
 
     playbackPanel_ = new PlaybackPanel(central);
     playbackPanel_->setInitialValues(params.rate, params.stepSec);
@@ -72,7 +91,14 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
 
     connect(playbackPanel_, &PlaybackPanel::rateChanged, playback_, &PlaybackController::setRate);
     connect(playbackPanel_, &PlaybackPanel::rateChanged, session_, &AppSession::setRate);
+    connect(playbackPanel_, &PlaybackPanel::rateChanged, this, [this](double rate) {
+        if (rate > 0.0) {
+            params_.rate = rate;
+        }
+    });
     connect(playbackPanel_, &PlaybackPanel::stepChanged, session_, &AppSession::setStep);
+    connect(playbackPanel_, &PlaybackPanel::stepChanged, this,
+            [this](int step) { params_.stepSec = step; });
     connect(playbackPanel_, &PlaybackPanel::seekForwardRequested, playback_,
             &PlaybackController::seekForward);
     connect(playbackPanel_, &PlaybackPanel::seekForwardRequested, session_,
@@ -81,9 +107,20 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
     connect(monitoringPanel_, &MonitoringPanel::scheduleApplyRequested, session_,
             &AppSession::applySchedule);
     connect(monitoringPanel_, &MonitoringPanel::scheduleApplyRequested, this,
-            [this] { statusBar()->showMessage(tr("Новое расписание передано симуляции")); });
+            [this](const api::ScheduleConfig& schedule) {
+                scheduleBeforeChange_ = params_.schedule;
+                params_.schedule = schedule;
+                statusBar()->showMessage(tr("Новое расписание передано симуляции"));
+            });
+    connect(errorBanner_, &RuntimeErrorBanner::restartRequested, this,
+            &MainWindow::restartSimulation);
 
     connect(session_, &AppSession::started, this, [this](const api::RunInfo& info) {
+        hasStarted_ = true;
+        lastSeed_ = info.seed;
+        errorBanner_->clear();
+        playbackPanel_->setFinished(false);
+        monitoringPanel_->setRunning(true);
         statusBar()->showMessage(tr("Запуск с зерном %1").arg(info.seed));
     });
     connect(session_, &AppSession::chunkReady, playback_, &PlaybackController::addChunk);
@@ -96,16 +133,68 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent) : QMainWin
     });
     connect(stationSelector_, &QComboBox::currentIndexChanged, this, &MainWindow::refreshBoard);
     connect(session_, &AppSession::summaryReady, this, [this](const api::SimSummary& summary) {
+        playbackPanel_->setFinished(true);
+        monitoringPanel_->setRunning(false);
         monitoringPanel_->setSummary(summary);
         statusBar()->showMessage(summary.completed ? tr("Моделирование завершено")
                                                    : tr("Моделирование остановлено"));
     });
-    connect(session_, &AppSession::errorOccurred, this, [this](const api::RuntimeError& error) {
-        statusBar()->showMessage(QString::fromStdString(error.message));
-    });
+    connect(session_, &AppSession::errorOccurred, this, &MainWindow::handleRuntimeError);
 
     refreshBoard();
     session_->start(params);
+}
+
+void MainWindow::handleRuntimeError(const api::RuntimeError& error) {
+    const QString details = QString::fromStdString(error.message);
+    switch (error.code) {
+    case api::ErrorCode::InvalidParams:
+        if (!hasStarted_) {
+            playbackPanel_->setFinished(true);
+            monitoringPanel_->setRunning(false);
+            errorBanner_->showError(
+                tr("Симуляцию не удалось запустить."),
+                validationDetails(error.issues, QString::fromStdString(error.message)), false);
+            statusBar()->showMessage(tr("Исправьте параметры запуска"));
+            break;
+        }
+        if (scheduleBeforeChange_.has_value()) {
+            params_.schedule = *scheduleBeforeChange_;
+            scheduleBeforeChange_.reset();
+        }
+        monitoringPanel_->showScheduleErrors(error.issues);
+        statusBar()->showMessage(tr("Расписание отклонено: исправьте указанные ошибки"));
+        break;
+    case api::ErrorCode::InvalidState:
+        qWarning().noquote() << tr("Команда отклонена:") << details;
+        break;
+    case api::ErrorCode::InternalError:
+        playbackPanel_->setFinished(true);
+        monitoringPanel_->setRunning(false);
+        errorBanner_->showError(tr("Симуляция остановлена из-за внутренней ошибки."), details,
+                                true);
+        statusBar()->showMessage(tr("Симуляция остановлена"));
+        break;
+    }
+}
+
+void MainWindow::restartSimulation() {
+    if (lastSeed_.has_value()) {
+        params_.seed = lastSeed_;
+    }
+    errorBanner_->clear();
+    playback_->reset();
+    playback_->setRate(params_.rate);
+    playbackPanel_->setInitialValues(params_.rate, params_.stepSec);
+    playbackPanel_->setFinished(false);
+    playbackPanel_->setModelState(params_.period.start, std::nullopt);
+    lineView_->setLine(params_.line);
+    boardWidget_->setBoards(nullptr, nullptr, params_.period.start);
+    monitoringPanel_->setState(playback_->state());
+    monitoringPanel_->setRunning(true);
+    hasStarted_ = false;
+    session_->start(params_);
+    statusBar()->showMessage(tr("Перезапуск симуляции"));
 }
 
 void MainWindow::refreshView() {

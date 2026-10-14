@@ -17,6 +17,8 @@ set(UBAHN_APP_SOURCES
     PlaybackPanel.h
     RuntimeScheduleEditor.cpp
     RuntimeScheduleEditor.h
+    RuntimeErrorBanner.cpp
+    RuntimeErrorBanner.h
     ScheduleEditor.cpp
     ScheduleEditor.h
     SetupDialog.cpp

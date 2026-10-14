@@ -40,10 +40,10 @@ RuntimeScheduleEditor::RuntimeScheduleEditor(QWidget* parent) : QWidget(parent) 
     status_->hide();
     layout->addWidget(status_);
 
-    auto* applyButton = new QPushButton(tr("Применить расписание"), this);
-    applyButton->setObjectName("applyScheduleButton");
-    layout->addWidget(applyButton);
-    connect(applyButton, &QPushButton::clicked, this, &RuntimeScheduleEditor::applySchedule);
+    applyButton_ = new QPushButton(tr("Применить расписание"), this);
+    applyButton_->setObjectName("applyScheduleButton");
+    layout->addWidget(applyButton_);
+    connect(applyButton_, &QPushButton::clicked, this, &RuntimeScheduleEditor::applySchedule);
 }
 
 void RuntimeScheduleEditor::setLine(const api::LineConfig& line) {
@@ -53,6 +53,24 @@ void RuntimeScheduleEditor::setLine(const api::LineConfig& line) {
 void RuntimeScheduleEditor::setSchedule(const api::ScheduleConfig& schedule) {
     editor_->setSchedule(schedule);
     status_->hide();
+}
+
+void RuntimeScheduleEditor::showApiErrors(const std::vector<api::ValidationIssue>& issues) {
+    std::vector<std::string> errors;
+    for (const auto& issue : issues) {
+        errors.push_back(issue.message);
+    }
+    if (errors.empty()) {
+        errors.push_back("Бэкенд отклонил расписание без описания ошибки");
+    }
+    status_->setStyleSheet(QStringLiteral("color: #b00020;"));
+    status_->setText(errorText(errors));
+    status_->show();
+}
+
+void RuntimeScheduleEditor::setEditable(bool editable) {
+    editor_->setEnabled(editable);
+    applyButton_->setEnabled(editable);
 }
 
 void RuntimeScheduleEditor::applySchedule() {
