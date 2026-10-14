@@ -4,9 +4,12 @@
 
 #include <QMainWindow>
 
+class QComboBox;
+
 namespace ubahn::app {
 
 class AppSession;
+class BoardWidget;
 class LineView;
 class PlaybackController;
 
@@ -17,7 +20,12 @@ public:
     explicit MainWindow(const api::SimParams& params, QWidget* parent = nullptr);
 
 private:
+    void refreshView();
+    void refreshBoard();
+
     LineView* lineView_ = nullptr;
+    BoardWidget* boardWidget_ = nullptr;
+    QComboBox* stationSelector_ = nullptr;
     AppSession* session_ = nullptr;
     PlaybackController* playback_ = nullptr;
 };

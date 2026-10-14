@@ -1,3 +1,4 @@
+#include "BoardWidget.h"
 #include "LineView.h"
 #include "MainWindow.h"
 #include "SetupDialog.h"
@@ -55,6 +56,10 @@ void AppShellTest::mainWindowHasLineView() {
     ubahn::app::MainWindow window(dialog.selectedParams());
 
     QVERIFY(window.findChild<ubahn::app::LineView*>("lineView") != nullptr);
+    QVERIFY(window.findChild<ubahn::app::BoardWidget*>("boardWidget") != nullptr);
+    auto* stationSelector = window.findChild<QComboBox*>("boardStationSelector");
+    QVERIFY(stationSelector != nullptr);
+    QCOMPARE(stationSelector->count(), 8);
     QCOMPARE(window.windowTitle(), QString("Untergrundbahn Simulator"));
 }
 
