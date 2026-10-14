@@ -3,6 +3,8 @@ set(UBAHN_APP_SOURCES
     AppSession.h
     BoardWidget.cpp
     BoardWidget.h
+    LineEditor.cpp
+    LineEditor.h
     LineView.cpp
     LineView.h
     MainWindow.cpp
@@ -11,6 +13,8 @@ set(UBAHN_APP_SOURCES
     PlaybackController.h
     PlaybackPanel.cpp
     PlaybackPanel.h
+    ScheduleEditor.cpp
+    ScheduleEditor.h
     SetupDialog.cpp
     SetupDialog.h
     SimulationState.cpp
