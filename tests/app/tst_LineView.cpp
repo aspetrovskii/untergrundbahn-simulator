@@ -1,5 +1,8 @@
 #include "LineView.h"
 
+#include <QGraphicsRectItem>
+#include <QGraphicsScene>
+#include <QGraphicsSimpleTextItem>
 #include <QTest>
 #include <cmath>
 #include <string>
@@ -38,6 +41,7 @@ private slots:
     void stationDistancesAreProportional();
     void positionsTrainOnBothDirections();
     void positionsServiceEdges();
+    void animatesUsingLatestVelocityWithoutChangingLabels();
 };
 
 void LineViewTest::supportsAllowedStationCounts_data() {
@@ -114,6 +118,69 @@ void LineViewTest::positionsServiceEdges() {
         QVERIFY(std::isfinite(position.x()));
         QVERIFY(std::isfinite(position.y()));
     }
+}
+
+void LineViewTest::animatesUsingLatestVelocityWithoutChangingLabels() {
+    ubahn::app::LineView view;
+    view.setLine(lineWithStations(7));
+    ubahn::api::TrainUpdate train;
+    train.id = 3;
+    train.station = 0;
+    train.edge = ubahn::api::TrackEdge::Span;
+    train.along = 0.2;
+    train.v = 0.1;
+    train.speedKmh = 36.0;
+    auto state = stateWithTrain(train, 100);
+    view.setState(state, 100.0);
+    const double span = view.stationX(1) - view.stationX(0);
+    const QPointF start = view.trainPosition(3);
+    QGraphicsRectItem* body = nullptr;
+    for (auto* item : view.scene()->items()) {
+        if (item->data(1).toBool() && item->data(0).toInt() == 3) {
+            if (auto* rectangle = qgraphicsitem_cast<QGraphicsRectItem*>(item)) {
+                body = rectangle;
+            }
+        }
+    }
+    QVERIFY(body != nullptr);
+    QCOMPARE(body->childItems().size(), 2);
+    auto* label = qgraphicsitem_cast<QGraphicsSimpleTextItem*>(body->childItems().front());
+    QVERIFY(label != nullptr);
+    const QString labelText = label->text();
+    const QString tooltip = body->toolTip();
+    const QPointF labelStart = label->scenePos();
+    const auto itemCount = view.scene()->items().size();
+
+    view.setModelTime(100.25);
+
+    const QPointF moved = view.trainPosition(3);
+    QVERIFY(std::abs(moved.x() - start.x() - span * 0.025) < 0.001);
+    QVERIFY(std::abs(label->scenePos().x() - labelStart.x() - span * 0.025) < 0.001);
+    QCOMPARE(label->text(), labelText);
+    QCOMPARE(body->toolTip(), tooltip);
+    QCOMPARE(view.scene()->items().size(), itemCount);
+
+    // Movement data must update even when the label/tooltip fields are unchanged.
+    train.along = 0.4;
+    train.v = 0.02;
+    state = stateWithTrain(train, 105);
+    view.setState(state, 105.0);
+    view.setModelTime(106.0);
+    QVERIFY(std::abs(view.trainPosition(3).x() - (view.stationX(0) + span * 0.42)) < 0.001);
+    view.setModelTime(1000.0);
+    QCOMPARE(view.trainPosition(3).x(), view.stationX(1));
+
+    train.speedKmh = 18.0;
+    train.lateness = 23;
+    train.flags.headingToDepot = true;
+    view.setState(stateWithTrain(train, 1000), 1000.0);
+    QVERIFY(body->toolTip().contains("23"));
+    QStringList labels;
+    for (auto* child : body->childItems()) {
+        labels.push_back(qgraphicsitem_cast<QGraphicsSimpleTextItem*>(child)->text());
+    }
+    QVERIFY(labels.contains(QString("4 →Д")));
+    QVERIFY(labels.contains(QString("18 км/ч")));
 }
 
 QTEST_MAIN(LineViewTest)

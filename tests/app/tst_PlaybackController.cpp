@@ -71,6 +71,8 @@ class PlaybackControllerTest : public QObject {
 private slots:
     void appliesAbsoluteState();
     void playsChunksInOrder();
+    void batchesDeltasAndKeepsAllNotices();
+    void emitsFramesBetweenWholeSeconds();
     void pauseFreezesTime();
     void seekInsideChunkSkipsNotices();
     void seekBeyondChunkWaitsForSnapshot();
@@ -108,6 +110,87 @@ void PlaybackControllerTest::playsChunksInOrder() {
     QCOMPARE(playback.state().trains().at(1).lateness, 40);
 }
 
+void PlaybackControllerTest::batchesDeltasAndKeepsAllNotices() {
+    ubahn::app::PlaybackController playback;
+    playback.setRate(1'000'000.0);
+    playback.addChunk(initialChunk(100));
+    auto chunk = std::make_shared<ubahn::api::ViewChunk>();
+    chunk->seq = 1;
+    chunk->kind = ubahn::api::ChunkKind::Play;
+    chunk->from = 100;
+    chunk->to = 110;
+    for (int index = 1; index <= 3; ++index) {
+        ubahn::api::ViewDelta delta;
+        delta.t = 100 + index;
+        ubahn::api::TrainUpdate train;
+        train.id = 1;
+        train.lateness = index * 10;
+        delta.trains.push_back(train);
+        ubahn::api::Warning warning;
+        warning.message = std::to_string(index);
+        delta.warnings.push_back(warning);
+        if (index < 3) {
+            delta.delays.push_back({index, ubahn::api::Dir::I, index, index * 10});
+        }
+        chunk->deltas.push_back(delta);
+    }
+    QSignalSpy stateSpy(&playback, &ubahn::app::PlaybackController::stateChanged);
+    QSignalSpy frameSpy(&playback, &ubahn::app::PlaybackController::frameReady);
+    std::vector<ubahn::api::DelayNotice> notices;
+    int noticeBatches = 0;
+    connect(&playback, &ubahn::app::PlaybackController::delayNoticesReady, this,
+            [&](const auto& batch) {
+                ++noticeBatches;
+                notices.insert(notices.end(), batch.begin(), batch.end());
+            });
+    connect(&playback, &ubahn::app::PlaybackController::stateChanged, this, [&] {
+        QCOMPARE(playback.currentTime(), ubahn::api::SimTime{110});
+        QCOMPARE(playback.state().trains().at(1).lateness, 30);
+    });
+
+    playback.addChunk(chunk);
+
+    QTRY_COMPARE_WITH_TIMEOUT(playback.currentTime(), ubahn::api::SimTime{110}, 500);
+    QCOMPARE(stateSpy.count(), 1);
+    QCOMPARE(frameSpy.count(), 1);
+    QCOMPARE(frameSpy.at(0).at(1).toBool(), true);
+    QCOMPARE(playback.state().trainUpdateTime(1), ubahn::api::SimTime{103});
+    QCOMPARE(playback.state().warnings().size(), std::size_t{3});
+    for (int index = 0; index < 3; ++index) {
+        QCOMPARE(playback.state().warnings()[static_cast<std::size_t>(index)].message,
+                 std::to_string(index + 1));
+    }
+    QCOMPARE(noticeBatches, 1);
+    QCOMPARE(notices.size(), std::size_t{2});
+    QCOMPARE(notices[0].trainId, 1);
+    QCOMPARE(notices[1].trainId, 2);
+    QVERIFY(playback.state().delayNotices().empty());
+}
+
+void PlaybackControllerTest::emitsFramesBetweenWholeSeconds() {
+    ubahn::app::PlaybackController playback;
+    playback.setRate(0.01);
+    playback.addChunk(initialChunk(100));
+    QSignalSpy frameSpy(&playback, &ubahn::app::PlaybackController::frameReady);
+    QSignalSpy timeSpy(&playback, &ubahn::app::PlaybackController::timeChanged);
+    QSignalSpy stateSpy(&playback, &ubahn::app::PlaybackController::stateChanged);
+    playback.addChunk(playChunk(1, 100, 110, 105, 20));
+
+    QTRY_VERIFY_WITH_TIMEOUT(frameSpy.count() >= 2, 500);
+    QVERIFY(playback.exactTime() > 100.0);
+    QCOMPARE(playback.currentTime(), ubahn::api::SimTime{100});
+    QCOMPARE(timeSpy.count(), 0);
+    QCOMPARE(stateSpy.count(), 0);
+    QCOMPARE(frameSpy.at(0).at(1).toBool(), false);
+
+    playback.setRate(0.0);
+    const int pausedFrames = frameSpy.count();
+    const double pausedTime = playback.exactTime();
+    QTest::qWait(40);
+    QCOMPARE(frameSpy.count(), pausedFrames);
+    QCOMPARE(playback.exactTime(), pausedTime);
+}
+
 void PlaybackControllerTest::pauseFreezesTime() {
     ubahn::app::PlaybackController playback;
     playback.setRate(0.0);
@@ -125,13 +208,34 @@ void PlaybackControllerTest::seekInsideChunkSkipsNotices() {
     ubahn::app::PlaybackController playback;
     playback.setRate(0.0);
     playback.addChunk(initialChunk(100));
-    playback.addChunk(playChunk(1, 100, 110, 103, 30, true));
+    auto chunk = std::make_shared<ubahn::api::ViewChunk>(*playChunk(1, 100, 110, 103, 30, true));
+    auto second = chunk->deltas.front();
+    second.t = 104;
+    second.trains.front().lateness = 40;
+    chunk->deltas.push_back(second);
+    auto future = second;
+    future.t = 109;
+    future.trains.front().lateness = 90;
+    chunk->deltas.push_back(future);
+    playback.addChunk(chunk);
+    QSignalSpy stateSpy(&playback, &ubahn::app::PlaybackController::stateChanged);
+    int notices = 0;
+    connect(&playback, &ubahn::app::PlaybackController::delayNoticesReady, this,
+            [&](const auto&) { ++notices; });
 
     playback.seekForward(105);
 
     QCOMPARE(playback.currentTime(), ubahn::api::SimTime{105});
-    QCOMPARE(playback.state().trains().at(1).lateness, 30);
+    QCOMPARE(playback.state().trains().at(1).lateness, 40);
+    QCOMPARE(stateSpy.count(), 1);
     QVERIFY(playback.state().delayNotices().empty());
+    QCOMPARE(notices, 0);
+
+    playback.seekForward(110);
+    QCOMPARE(playback.state().trains().at(1).lateness, 90);
+    QCOMPARE(playback.currentTime(), ubahn::api::SimTime{110});
+    QCOMPARE(stateSpy.count(), 2);
+    QCOMPARE(notices, 0);
 }
 
 void PlaybackControllerTest::seekBeyondChunkWaitsForSnapshot() {
