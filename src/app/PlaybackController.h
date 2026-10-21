@@ -31,7 +31,8 @@ public slots:
 signals:
     void timeChanged(ubahn::api::SimTime time);
     void stateChanged();
-    void delayNoticesReady();
+    void frameReady(double modelTime, bool stateChanged);
+    void delayNoticesReady(const std::vector<ubahn::api::DelayNotice>& notices);
     void chunkFinished(uint64_t sequence);
     void sequenceError(uint64_t expected, uint64_t received);
 
@@ -42,7 +43,7 @@ private:
     void startNextChunk();
     void applyDeltasThrough(double target, bool includeDelayNotices);
     void completeActiveChunk();
-    void setCurrentTime(double time);
+    void setCurrentTime(double time, bool stateChanged = false);
     void restartClock();
 
     SimulationState state_;

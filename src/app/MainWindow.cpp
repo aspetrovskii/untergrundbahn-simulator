@@ -124,11 +124,10 @@ MainWindow::MainWindow(const api::SimParams& params, QWidget* parent)
         statusBar()->showMessage(tr("Запуск с зерном %1").arg(info.seed));
     });
     connect(session_, &AppSession::chunkReady, playback_, &PlaybackController::addChunk);
-    connect(playback_, &PlaybackController::stateChanged, this, &MainWindow::refreshView);
-    connect(playback_, &PlaybackController::delayNoticesReady, this,
-            [this] { monitoringPanel_->showDelayNotices(playback_->state().delayNotices()); });
+    connect(playback_, &PlaybackController::frameReady, this, &MainWindow::refreshView);
+    connect(playback_, &PlaybackController::delayNoticesReady, monitoringPanel_,
+            &MonitoringPanel::showDelayNotices);
     connect(playback_, &PlaybackController::timeChanged, this, [this](api::SimTime time) {
-        refreshView();
         statusBar()->showMessage(tr("Модельное время: %1 с").arg(time));
     });
     connect(stationSelector_, &QComboBox::currentIndexChanged, this, &MainWindow::refreshBoard);
@@ -184,6 +183,7 @@ void MainWindow::restartSimulation() {
     }
     errorBanner_->clear();
     playback_->reset();
+    displayedTime_.reset();
     playback_->setRate(params_.rate);
     playbackPanel_->setInitialValues(params_.rate, params_.stepSec);
     playbackPanel_->setFinished(false);
@@ -197,11 +197,19 @@ void MainWindow::restartSimulation() {
     statusBar()->showMessage(tr("Перезапуск симуляции"));
 }
 
-void MainWindow::refreshView() {
-    lineView_->setState(playback_->state(), playback_->exactTime());
-    playbackPanel_->setModelState(playback_->currentTime(), playback_->state().clock());
-    monitoringPanel_->setState(playback_->state());
-    refreshBoard();
+void MainWindow::refreshView(double modelTime, bool stateChanged) {
+    if (stateChanged) {
+        lineView_->setState(playback_->state(), modelTime);
+        monitoringPanel_->setState(playback_->state());
+    } else {
+        lineView_->setModelTime(modelTime);
+    }
+    const api::SimTime time = playback_->currentTime();
+    if (stateChanged || displayedTime_ != time) {
+        playbackPanel_->setModelState(time, playback_->state().clock());
+        refreshBoard();
+        displayedTime_ = time;
+    }
 }
 
 void MainWindow::refreshBoard() {

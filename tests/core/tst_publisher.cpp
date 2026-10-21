@@ -362,6 +362,7 @@ void PublisherTest::modeChangeEntersPlay() {
     QCOMPARE(before->mode, ubahn::api::TrainMode::OnTime);
 
     state.trains[0].lateness = 15;
+    ubahn::core::markTrainView(state, 0);
     const std::optional<ubahn::api::ViewDelta> delta =
         ubahn::core::collectDelta(state, t, ubahn::core::DeltaMode::Play);
     QVERIFY(delta.has_value());
@@ -378,6 +379,7 @@ void PublisherTest::modeChangeEntersPlay() {
     QVERIFY(!delta->clock.has_value());
 
     state.trains[1].flags.headingToDepot = true;
+    ubahn::core::markTrainView(state, 1);
     const std::optional<ubahn::api::ViewDelta> icon =
         ubahn::core::collectDelta(state, t, ubahn::core::DeltaMode::Play);
     QVERIFY(icon.has_value());
@@ -428,6 +430,7 @@ void PublisherTest::playIgnoresAlongOnly() {
     constexpr ubahn::api::SimTime target = depart + 65;
     state.trains[static_cast<std::size_t>(trainId)].seg =
         ubahn::core::Segment{target, target + 130, 200.0, 1900.0};
+    ubahn::core::markTrainView(state, trainId);
     QVERIFY(!ubahn::core::collectDelta(state, target, ubahn::core::DeltaMode::Play).has_value());
 }
 
@@ -535,6 +538,7 @@ void PublisherTest::boardChangeEntersPlay() {
     platform.lastArrival = 25000;
     platform.lastDwell = 80;
     platform.lastShift = 4;
+    state.changedBoards.mark(3);
 
     const std::optional<ubahn::api::ViewDelta> departed =
         ubahn::core::collectDelta(state, t, ubahn::core::DeltaMode::Play);
@@ -553,6 +557,7 @@ void PublisherTest::boardChangeEntersPlay() {
     state.trains[0].aAct = 25231;
     ubahn::core::platformAt(state, static_cast<int>(ubahn::api::Dir::II), 1).lastArrival = 25231;
     ubahn::core::platformAt(state, static_cast<int>(ubahn::api::Dir::II), 1).lastShift = 0;
+    ubahn::core::markTrainView(state, 0);
 
     const std::optional<ubahn::api::ViewDelta> arrived =
         ubahn::core::collectDelta(state, t, ubahn::core::DeltaMode::Play);
@@ -571,6 +576,7 @@ void PublisherTest::depotMoveChangesStation() {
     QVERIFY(ubahn::core::collectDelta(state, t, ubahn::core::DeltaMode::Play).has_value());
 
     state.trains[0].depotAt = ubahn::api::Term::B;
+    ubahn::core::markTrainView(state, 0);
     const std::optional<ubahn::api::ViewDelta> delta =
         ubahn::core::collectDelta(state, t, ubahn::core::DeltaMode::Play);
     QVERIFY(delta.has_value());

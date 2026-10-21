@@ -597,6 +597,7 @@ void handleTrain(EngineState& state, int train, api::SimTime now, DirtySet& dirt
     if (!knownTrain(state, train)) {
         return;
     }
+    markTrainView(state, train);
     switch (state.trains[static_cast<std::size_t>(train)].next.type) {
     case EventType::Arrive:
         onArrive(state, train, now, dirty);
@@ -638,9 +639,11 @@ void handleTrain(EngineState& state, int train, api::SimTime now, DirtySet& dirt
         dirty.push(train);
         break;
     }
+    markTrainView(state, train);
 }
 
 void applyReschedule(EngineState& state, int train, const NextEvent& next, api::SimTime now) {
+    markTrainView(state, train);
     if (!next.valid || !knownTrain(state, train)) {
         return;
     }

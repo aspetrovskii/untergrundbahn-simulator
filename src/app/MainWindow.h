@@ -23,7 +23,7 @@ public:
     explicit MainWindow(const api::SimParams& params, QWidget* parent = nullptr);
 
 private:
-    void refreshView();
+    void refreshView(double modelTime, bool stateChanged);
     void refreshBoard();
     void handleRuntimeError(const api::RuntimeError& error);
     void restartSimulation();
@@ -39,6 +39,7 @@ private:
     api::SimParams params_;
     std::optional<uint64_t> lastSeed_;
     std::optional<api::ScheduleConfig> scheduleBeforeChange_;
+    std::optional<api::SimTime> displayedTime_;
     bool hasStarted_ = false;
 };
 

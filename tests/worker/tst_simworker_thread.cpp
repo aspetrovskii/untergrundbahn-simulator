@@ -68,7 +68,7 @@ void SimWorkerThreadTest::queuedCommandsSignalGuiThreadAndDeleteLater() {
     QVERIFY(thread.isRunning());
 
     QVERIFY(QMetaObject::invokeMethod(ctrl, [ctrl] { ctrl->stop(); }, Qt::QueuedConnection));
-    QVERIFY(errors.wait(3000));
+    QTRY_COMPARE_WITH_TIMEOUT(errors.count(), 1, 3000);
     QCOMPARE(errors.count(), 1);
     const auto err = errors.at(0).at(0).value<ubahn::api::RuntimeError>();
     QVERIFY(err.code == ubahn::api::ErrorCode::InvalidState);
@@ -76,7 +76,7 @@ void SimWorkerThreadTest::queuedCommandsSignalGuiThreadAndDeleteLater() {
     const ubahn::api::SimParams params = pausedRun();
     QVERIFY(QMetaObject::invokeMethod(
         ctrl, [ctrl, params] { ctrl->start(params); }, Qt::QueuedConnection));
-    QVERIFY(started.wait(3000));
+    QTRY_COMPARE_WITH_TIMEOUT(started.count(), 1, 3000);
     // started and Initial are emitted in one slot, so the chunk may already be queued.
     QTRY_COMPARE(chunks.count(), 1);
     QTRY_COMPARE(signalThread, QThread::currentThread());
@@ -87,7 +87,7 @@ void SimWorkerThreadTest::queuedCommandsSignalGuiThreadAndDeleteLater() {
     QCOMPARE(chunks.count(), 1);
 
     QVERIFY(QMetaObject::invokeMethod(ctrl, [ctrl] { ctrl->stop(); }, Qt::QueuedConnection));
-    QVERIFY(summary.wait(3000));
+    QTRY_COMPARE_WITH_TIMEOUT(summary.count(), 1, 3000);
     QCOMPARE(summary.count(), 1);
     const auto done = summary.at(0).at(0).value<ubahn::api::SimSummary>();
     QVERIFY(!done.completed);

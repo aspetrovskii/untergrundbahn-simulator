@@ -60,17 +60,16 @@ api::Warning noTrainWarning(api::Term term, api::SimTime slot) {
 }
 
 void enqueueSlot(Terminal& term, const EngineState& state, int32_t id) {
-    if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
+    if (tripById(state, id) == nullptr) {
         return;
     }
-    const api::SimTime slot = state.trips[static_cast<std::size_t>(id)].slot;
+    const api::SimTime slot = (*tripById(state, id)).slot;
     auto at = term.slots.begin();
     for (; at != term.slots.end(); ++at) {
         if (*at == id) {
             return;
         }
-        if (*at >= 0 && static_cast<std::size_t>(*at) < state.trips.size() &&
-            state.trips[static_cast<std::size_t>(*at)].slot > slot) {
+        if (tripById(state, *at) != nullptr && (*tripById(state, *at)).slot > slot) {
             break;
         }
     }
@@ -82,9 +81,7 @@ void storeTrip(EngineState& state, Terminal& term, Trip trip) {
     if (id < 0) {
         return;
     }
-    if (id == static_cast<int32_t>(state.trips.size())) {
-        state.trips.push_back(std::move(trip));
-    }
+    appendTrip(state, std::move(trip));
     if (state.nextTripId <= id) {
         state.nextTripId = id + 1;
     }
@@ -92,6 +89,10 @@ void storeTrip(EngineState& state, Terminal& term, Trip trip) {
 }
 
 void ensureSlots(EngineState& state, api::Term term, api::SimTime now) {
+    // Amortise collection across slot batches instead of dispatcher wakes.
+    if (state.nextTripId - state.lastTripSweep >= 128) {
+        reclaimTrips(state);
+    }
     Terminal& terminal = state.terms[static_cast<std::size_t>(term)];
     const api::Dir dir = departureDir(term);
     const api::SimTime horizon = horizonAt(state, now);
@@ -145,6 +146,8 @@ bool holderCovers(const EngineState& state, int holder, api::Term term, api::Sim
 }
 
 void bindTrain(EngineState& state, Trip& trip, int train) {
+    markTrainView(state, trip.trainId);
+    markTrainView(state, train);
     if (trip.trainId >= 0 && trip.trainId != train &&
         trip.trainId < static_cast<int>(state.trains.size())) {
         Train& previous = state.trains[static_cast<std::size_t>(trip.trainId)];
@@ -157,9 +160,8 @@ void bindTrain(EngineState& state, Trip& trip, int train) {
         return;
     }
     Train& unit = state.trains[static_cast<std::size_t>(train)];
-    if (unit.tripId >= 0 && unit.tripId != trip.id &&
-        unit.tripId < static_cast<int32_t>(state.trips.size())) {
-        Trip& previous = state.trips[static_cast<std::size_t>(unit.tripId)];
+    if (unit.tripId >= 0 && unit.tripId != trip.id && tripById(state, unit.tripId) != nullptr) {
+        Trip& previous = (*tripById(state, unit.tripId));
         if (previous.trainId == train) {
             previous.trainId = -1;
         }
@@ -174,10 +176,10 @@ void shiftOntoFollowing(EngineState& state, Terminal& term, std::size_t index, i
                         DirtySet& dirty) {
     while (train >= 0 && index < term.slots.size()) {
         const int32_t id = term.slots[index];
-        if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
+        if (tripById(state, id) == nullptr) {
             break;
         }
-        Trip& later = state.trips[static_cast<std::size_t>(id)];
+        Trip& later = (*tripById(state, id));
         const int holder = later.trainId;
         bindTrain(state, later, train);
         dirty.push(train);
@@ -237,10 +239,10 @@ bool coversNearestSlot(const EngineState& state, int train, api::Term term, api:
     const api::Dir dir = departureDir(term);
     const Trip* nearest = nullptr;
     for (const int32_t id : terminal.slots) {
-        if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
+        if (tripById(state, id) == nullptr) {
             continue;
         }
-        const Trip& trip = state.trips[static_cast<std::size_t>(id)];
+        const Trip& trip = (*tripById(state, id));
         if (trip.dir != dir || trip.slot < departAt) {
             continue;
         }
@@ -258,10 +260,10 @@ bool couldTakeBeforeClose(const EngineState& state, int train, api::Term term, a
     const api::SimTime close = dayStart(now) + api::kCloseTod;
     const api::Dir dir = departureDir(term);
     for (const int32_t id : terminal.slots) {
-        if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
+        if (tripById(state, id) == nullptr) {
             continue;
         }
-        const Trip& trip = state.trips[static_cast<std::size_t>(id)];
+        const Trip& trip = (*tripById(state, id));
         if (trip.dir != dir || trip.slot <= now) {
             continue;
         }
@@ -283,10 +285,10 @@ api::SimTime earliestUncovered(const EngineState& state, api::Term term) {
     bool found = false;
     api::SimTime earliest = terminal.cursor.nextSlotTime;
     for (const int32_t id : terminal.slots) {
-        if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
+        if (tripById(state, id) == nullptr) {
             continue;
         }
-        const Trip& trip = state.trips[static_cast<std::size_t>(id)];
+        const Trip& trip = (*tripById(state, id));
         if (holderCovers(state, trip.trainId, term, trip.slot)) {
             continue;
         }
@@ -301,10 +303,10 @@ api::SimTime earliestUncovered(const EngineState& state, api::Term term) {
     api::SimTime lastSlot = terminal.cursor.nextSlotTime;
     bool any = false;
     for (const int32_t id : terminal.slots) {
-        if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
+        if (tripById(state, id) == nullptr) {
             continue;
         }
-        const api::SimTime slot = state.trips[static_cast<std::size_t>(id)].slot;
+        const api::SimTime slot = (*tripById(state, id)).slot;
         if (!any || slot > lastSlot) {
             lastSlot = slot;
             any = true;
@@ -334,10 +336,10 @@ void handleDispatcher(EngineState& state, api::Term term, api::SimTime now, Dirt
     const api::SimTime limit = now + leadTime(state);
     for (std::size_t i = 0; i < terminal.slots.size(); ++i) {
         const int32_t id = terminal.slots[i];
-        if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
+        if (tripById(state, id) == nullptr) {
             continue;
         }
-        Trip& trip = state.trips[static_cast<std::size_t>(id)];
+        Trip& trip = (*tripById(state, id));
         if (trip.slot > limit) {
             break;
         }
@@ -346,7 +348,10 @@ void handleDispatcher(EngineState& state, api::Term term, api::SimTime now, Dirt
             continue;
         }
         if (terminal.depot.empty()) {
-            state.pendingWarnings.push_back(noTrainWarning(term, trip.slot));
+            if (!trip.shortageReported) {
+                trip.shortageReported = true;
+                state.pendingWarnings.push_back(noTrainWarning(term, trip.slot));
+            }
             continue;
         }
         const int depotTrain = terminal.depot.front();
@@ -382,10 +387,10 @@ void assignTripFromTurnaround(EngineState& state, int train, api::Term term) {
     int32_t best = -1;
     api::SimTime bestSlot = 0;
     for (const int32_t id : terminal.slots) {
-        if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
+        if (tripById(state, id) == nullptr) {
             continue;
         }
-        const Trip& trip = state.trips[static_cast<std::size_t>(id)];
+        const Trip& trip = (*tripById(state, id));
         if (trip.trainId >= 0) {
             continue;
         }
@@ -397,7 +402,7 @@ void assignTripFromTurnaround(EngineState& state, int train, api::Term term) {
     if (best < 0) {
         return;
     }
-    bindTrain(state, state.trips[static_cast<std::size_t>(best)], train);
+    bindTrain(state, (*tripById(state, best)), train);
 }
 
 bool decideWithdrawal(const EngineState& state, int train, api::Term term, api::SimTime now) {
@@ -443,12 +448,11 @@ std::vector<api::ValidationIssue> applyScheduleChange(EngineState& state,
         bool haveAssigned = false;
         api::SimTime lastAssigned = 0;
         for (const int32_t id : terminal.slots) {
-            if (id < 0 || static_cast<std::size_t>(id) >= state.trips.size()) {
+            if (tripById(state, id) == nullptr) {
                 continue;
             }
-            const Trip& trip = state.trips[static_cast<std::size_t>(id)];
-            // Assigned trips keep their plan. Unassigned ones after the boundary are dropped
-            // from the queue only: trips is append-only (EngineState).
+            const Trip& trip = (*tripById(state, id));
+            // Assigned trips keep their plan. Reclaim cancelled plans after both queues change.
             if (trip.trainId < 0 && trip.slot > boundary) {
                 continue;
             }
@@ -470,6 +474,7 @@ std::vector<api::ValidationIssue> applyScheduleChange(EngineState& state,
         ensureSlots(state, term, at);
         wakeDispatcher(state, term);
     }
+    reclaimTrips(state);
     return {};
 }
 
