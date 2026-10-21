@@ -5,19 +5,26 @@
 
 #include <QHeaderView>
 #include <QLabel>
+#include <QScrollBar>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <cstddef>
 
 namespace ubahn::app {
 namespace {
 
 void setCell(QTableWidget* table, int row, int column, const QString& text) {
-    auto* item = new QTableWidgetItem(text);
-    item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-    table->setItem(row, column, item);
+    auto* item = table->item(row, column);
+    if (item == nullptr) {
+        item = new QTableWidgetItem(text);
+        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        table->setItem(row, column, item);
+    } else if (item->text() != text) {
+        item->setText(text);
+    }
 }
 
 QString directionText(api::Dir direction) {
@@ -76,6 +83,7 @@ MonitoringPanel::MonitoringPanel(QWidget* parent) : QWidget(parent) {
     summary_ = new SummaryWidget(tabs_);
     summaryTab_ = tabs_->addTab(summary_, tr("Итоги"));
     layout->addWidget(tabs_);
+    connect(tabs_, &QTabWidget::currentChanged, this, &MonitoringPanel::updateCurrentTab);
 
     delayTimer_ = new QTimer(this);
     delayTimer_->setObjectName("delayTimer");
@@ -88,6 +96,8 @@ void MonitoringPanel::setLine(const api::LineConfig& line) {
     line_ = line;
     scheduleEditor_->setLine(line);
     summary_->setLine(line);
+    trainsDirty_ = true;
+    updateCurrentTab();
 }
 
 void MonitoringPanel::setSchedule(const api::ScheduleConfig& schedule) {
@@ -113,8 +123,33 @@ void MonitoringPanel::setRunning(bool running) {
 }
 
 void MonitoringPanel::setState(const SimulationState& state) {
-    updateTrains(state.trains());
-    updateWarnings(state.warnings());
+    latestTrains_ = state.trains();
+    trainsDirty_ = true;
+
+    const auto& warnings = state.warnings();
+    // Warnings are append-only within a run. A cleared state starts a new journal.
+    if (warnings.size() < warningHistory_.size()) {
+        warningHistory_.clear();
+        resetWarnings_ = true;
+        warningsDirty_ = true;
+    }
+    if (warnings.size() > warningHistory_.size()) {
+        warningHistory_.insert(warningHistory_.end(),
+                               warnings.begin() + static_cast<std::ptrdiff_t>(warningHistory_.size()),
+                               warnings.end());
+        warningsDirty_ = true;
+    }
+    updateCurrentTab();
+}
+
+void MonitoringPanel::updateCurrentTab() {
+    if (tabs_->currentWidget() == trains_ && trainsDirty_) {
+        updateTrains(latestTrains_);
+        trainsDirty_ = false;
+    } else if (tabs_->currentWidget() == warnings_ && warningsDirty_) {
+        updateWarnings(warningHistory_);
+        warningsDirty_ = false;
+    }
 }
 
 void MonitoringPanel::showDelayNotices(const std::vector<api::DelayNotice>& notices) {
@@ -136,9 +171,22 @@ void MonitoringPanel::showDelayNotices(const std::vector<api::DelayNotice>& noti
 }
 
 void MonitoringPanel::updateTrains(const std::map<int, api::TrainUpdate>& trains) {
-    trains_->setRowCount(static_cast<int>(trains.size()));
+    const int verticalScroll = trains_->verticalScrollBar()->value();
+    const int horizontalScroll = trains_->horizontalScrollBar()->value();
     int row = 0;
     for (const auto& [id, train] : trains) {
+        // Match rows by train ID so inserting another train cannot change selection
+        // identity or replace the items belonging to an existing train.
+        while (row < static_cast<int>(displayedTrainIds_.size()) &&
+               displayedTrainIds_[static_cast<std::size_t>(row)] < id) {
+            trains_->removeRow(row);
+            displayedTrainIds_.erase(displayedTrainIds_.begin() + row);
+        }
+        if (row == static_cast<int>(displayedTrainIds_.size()) ||
+            displayedTrainIds_[static_cast<std::size_t>(row)] != id) {
+            trains_->insertRow(row);
+            displayedTrainIds_.insert(displayedTrainIds_.begin() + row, id);
+        }
         setCell(trains_, row, 0, QString::number(id + 1));
         setCell(trains_, row, 1, modeText(train.mode));
         setCell(trains_, row, 2, locationText(train));
@@ -146,11 +194,27 @@ void MonitoringPanel::updateTrains(const std::map<int, api::TrainUpdate>& trains
         setCell(trains_, row, 4, flagsText(train.flags));
         ++row;
     }
+    if (row < static_cast<int>(displayedTrainIds_.size())) {
+        trains_->setRowCount(row);
+        displayedTrainIds_.resize(static_cast<std::size_t>(row));
+    }
+    trains_->verticalScrollBar()->setValue(verticalScroll);
+    trains_->horizontalScrollBar()->setValue(horizontalScroll);
 }
 
 void MonitoringPanel::updateWarnings(const std::vector<api::Warning>& warnings) {
+    if (resetWarnings_) {
+        warnings_->setRowCount(0);
+        resetWarnings_ = false;
+    }
+    const int firstNewRow = warnings_->rowCount();
+    if (firstNewRow == static_cast<int>(warnings.size())) {
+        return;
+    }
+    const int verticalScroll = warnings_->verticalScrollBar()->value();
+    const int horizontalScroll = warnings_->horizontalScrollBar()->value();
     warnings_->setRowCount(static_cast<int>(warnings.size()));
-    for (std::size_t row = 0; row < warnings.size(); ++row) {
+    for (std::size_t row = static_cast<std::size_t>(firstNewRow); row < warnings.size(); ++row) {
         const auto& warning = warnings[row];
         const QString type = warning.code == api::WarningCode::IntervalStretched
                                  ? tr("Растянут интервал")
@@ -158,6 +222,8 @@ void MonitoringPanel::updateWarnings(const std::vector<api::Warning>& warnings) 
         setCell(warnings_, static_cast<int>(row), 0, type);
         setCell(warnings_, static_cast<int>(row), 1, QString::fromStdString(warning.message));
     }
+    warnings_->verticalScrollBar()->setValue(verticalScroll);
+    warnings_->horizontalScrollBar()->setValue(horizontalScroll);
 }
 
 QString MonitoringPanel::modeText(api::TrainMode mode) const {

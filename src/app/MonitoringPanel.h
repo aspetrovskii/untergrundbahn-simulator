@@ -35,6 +35,7 @@ signals:
     void scheduleApplyRequested(const ubahn::api::ScheduleConfig& schedule);
 
 private:
+    void updateCurrentTab();
     void updateTrains(const std::map<int, api::TrainUpdate>& trains);
     void updateWarnings(const std::vector<api::Warning>& warnings);
     QString modeText(api::TrainMode mode) const;
@@ -43,6 +44,12 @@ private:
     QString stationName(int station) const;
 
     api::LineConfig line_;
+    std::map<int, api::TrainUpdate> latestTrains_;
+    std::vector<int> displayedTrainIds_;
+    std::vector<api::Warning> warningHistory_;
+    bool trainsDirty_ = false;
+    bool warningsDirty_ = false;
+    bool resetWarnings_ = false;
     QLabel* delayBanner_ = nullptr;
     QTabWidget* tabs_ = nullptr;
     QTableWidget* trains_ = nullptr;

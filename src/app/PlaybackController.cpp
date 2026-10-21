@@ -44,7 +44,6 @@ void PlaybackController::addChunk(const api::ViewChunkPtr& chunk) {
             active_ = chunk;
             nextDelta_ = 0;
             applyDeltasThrough(chunk->to, false);
-            setCurrentTime(static_cast<double>(chunk->to));
             waitingForSeek_ = false;
             completeActiveChunk();
         } else {
@@ -85,7 +84,6 @@ void PlaybackController::seekForward(api::SimTime target) {
     if (active_ && active_->kind == api::ChunkKind::Play) {
         if (target <= active_->to) {
             applyDeltasThrough(static_cast<double>(target), false);
-            setCurrentTime(static_cast<double>(target));
             if (rate_ > 0.0) {
                 restartClock();
                 timer_->start();
@@ -94,7 +92,6 @@ void PlaybackController::seekForward(api::SimTime target) {
         }
 
         applyDeltasThrough(static_cast<double>(active_->to), false);
-        setCurrentTime(static_cast<double>(active_->to));
         const uint64_t sequence = active_->seq;
         active_.reset();
         nextDelta_ = 0;
@@ -130,7 +127,6 @@ void PlaybackController::advance() {
     const double target = std::min(static_cast<double>(active_->to),
                                    clockBaseTime_ + realSeconds * rate_ * chunkDuration);
     applyDeltasThrough(target, true);
-    setCurrentTime(target);
 
     if (target >= static_cast<double>(active_->to)) {
         completeActiveChunk();
@@ -148,7 +144,6 @@ void PlaybackController::startNextChunk() {
 
     if (active_->kind == api::ChunkKind::Initial || active_->kind == api::ChunkKind::Seek) {
         applyDeltasThrough(static_cast<double>(active_->to), false);
-        setCurrentTime(static_cast<double>(active_->to));
         completeActiveChunk();
         return;
     }
@@ -164,14 +159,23 @@ void PlaybackController::applyDeltasThrough(double target, bool includeDelayNoti
     if (!active_) {
         return;
     }
+    bool changed = false;
+    std::vector<api::DelayNotice> notices;
     while (nextDelta_ < active_->deltas.size() &&
            static_cast<double>(active_->deltas[nextDelta_].t) <= target) {
-        state_.apply(active_->deltas[nextDelta_], includeDelayNotices);
-        emit stateChanged();
-        if (includeDelayNotices && !state_.delayNotices().empty()) {
-            emit delayNoticesReady();
+        const auto& delta = active_->deltas[nextDelta_];
+        state_.apply(delta, includeDelayNotices);
+        if (includeDelayNotices) {
+            notices.insert(notices.end(), delta.delays.begin(), delta.delays.end());
         }
+        changed = true;
         ++nextDelta_;
+    }
+    // Publish only after the entire batch and its clock are consistent. Notices have a
+    // separate payload because SimulationState retains only the last delta's notices.
+    setCurrentTime(target, changed);
+    if (!notices.empty()) {
+        emit delayNoticesReady(notices);
     }
 }
 
@@ -187,13 +191,20 @@ void PlaybackController::completeActiveChunk() {
     startNextChunk();
 }
 
-void PlaybackController::setCurrentTime(double time) {
+void PlaybackController::setCurrentTime(double time, bool changed) {
     const api::SimTime previous = currentTime();
+    const bool needsFrame = !hasTime_ || currentTime_ != time || changed;
     currentTime_ = time;
     hasTime_ = true;
     const api::SimTime current = currentTime();
+    if (changed) {
+        emit stateChanged();
+    }
     if (current != previous) {
         emit timeChanged(current);
+    }
+    if (needsFrame) {
+        emit frameReady(time, changed);
     }
 }
 

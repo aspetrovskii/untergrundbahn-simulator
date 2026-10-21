@@ -18,6 +18,7 @@
 #include <QWheelEvent>
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 
 namespace ubahn::app {
 namespace {
@@ -84,6 +85,13 @@ QString edgeName(api::TrackEdge edge) {
     return LineView::tr("прочее");
 }
 
+bool sameAppearance(const api::TrainUpdate& first, const api::TrainUpdate& second) {
+    return std::tie(first.mode, first.flags.headingToDepot, first.speedKmh, first.dir, first.edge,
+                    first.lateness) ==
+           std::tie(second.mode, second.flags.headingToDepot, second.speedKmh, second.dir, second.edge,
+                    second.lateness);
+}
+
 } // namespace
 
 LineView::LineView(QWidget* parent) : QGraphicsView(parent), scene_(new QGraphicsScene(this)) {
@@ -102,6 +110,7 @@ void LineView::setLine(const api::LineConfig& line) {
     stationPositions_.clear();
     trainItems_.clear();
     trainStates_.clear();
+    trainUpdateTimes_.clear();
     scene_->clear();
 
     double totalLength = 0.0;
@@ -128,8 +137,23 @@ void LineView::setState(const SimulationState& state, double modelTime) {
         return;
     }
     for (const auto& [id, train] : state.trains()) {
+        const auto previous = trainStates_.find(id);
+        if (previous == trainStates_.end() || !sameAppearance(previous->second, train)) {
+            updateTrainAppearance(train);
+        }
         trainStates_[id] = train;
-        updateTrain(train, state.trainUpdateTime(id), modelTime);
+        trainUpdateTimes_[id] = state.trainUpdateTime(id);
+    }
+    setModelTime(modelTime);
+}
+
+void LineView::setModelTime(double modelTime) {
+    for (const auto& [id, train] : trainStates_) {
+        auto* body = trainItems_.at(id).body;
+        const QPointF position = positionFor(train, trainUpdateTimes_.at(id), modelTime);
+        if (body->pos() != position) {
+            body->setPos(position);
+        }
     }
 }
 
@@ -226,16 +250,15 @@ void LineView::drawTerminal(int station, bool leftSide) {
     depotLabel->setPos(depot.x() - depotLabel->boundingRect().width() / 2.0, depot.y() + 20.0);
 }
 
-void LineView::updateTrain(const api::TrainUpdate& train, api::SimTime updateTime,
-                           double modelTime) {
+void LineView::updateTrainAppearance(const api::TrainUpdate& train) {
     auto item = trainItems_.find(train.id);
     if (item == trainItems_.end()) {
         TrainGraphics graphics;
         graphics.body =
             scene_->addRect(-kTrainWidth / 2.0, -kTrainHeight / 2.0, kTrainWidth, kTrainHeight,
                             QPen(QColor(35, 35, 35), 1.5), QBrush(modeColor(train.mode)));
-        graphics.number = scene_->addSimpleText(QString{});
-        graphics.speed = scene_->addSimpleText(QString{});
+        graphics.number = new QGraphicsSimpleTextItem(graphics.body);
+        graphics.speed = new QGraphicsSimpleTextItem(graphics.body);
         for (QGraphicsItem* graphicsItem : {static_cast<QGraphicsItem*>(graphics.body),
                                             static_cast<QGraphicsItem*>(graphics.number),
                                             static_cast<QGraphicsItem*>(graphics.speed)}) {
@@ -246,20 +269,17 @@ void LineView::updateTrain(const api::TrainUpdate& train, api::SimTime updateTim
     }
 
     TrainGraphics& graphics = item->second;
-    const QPointF position = positionFor(train, updateTime, modelTime);
     graphics.body->setBrush(modeColor(train.mode));
-    graphics.body->setPos(position);
 
     QString number = QString::number(train.id + 1);
     if (train.flags.headingToDepot) {
         number += tr(" →Д");
     }
     graphics.number->setText(number);
-    graphics.number->setPos(position.x() - graphics.number->boundingRect().width() / 2.0,
-                            position.y() - graphics.number->boundingRect().height() / 2.0);
+    graphics.number->setPos(-graphics.number->boundingRect().width() / 2.0,
+                           -graphics.number->boundingRect().height() / 2.0);
     graphics.speed->setText(tr("%1 км/ч").arg(train.speedKmh, 0, 'f', 0));
-    graphics.speed->setPos(position.x() + kTrainWidth / 2.0 + 5.0,
-                           position.y() - graphics.speed->boundingRect().height() / 2.0);
+    graphics.speed->setPos(kTrainWidth / 2.0 + 5.0, -graphics.speed->boundingRect().height() / 2.0);
 
     const QString description = trainDescription(train);
     graphics.body->setToolTip(description);

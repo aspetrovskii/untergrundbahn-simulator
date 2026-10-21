@@ -24,6 +24,7 @@ public:
 
     void setLine(const api::LineConfig& line);
     void setState(const SimulationState& state, double modelTime);
+    void setModelTime(double modelTime);
     void fitToLine();
 
     double stationX(int station) const;
@@ -42,7 +43,7 @@ private:
 
     void drawStaticLine();
     void drawTerminal(int station, bool leftSide);
-    void updateTrain(const api::TrainUpdate& train, api::SimTime updateTime, double modelTime);
+    void updateTrainAppearance(const api::TrainUpdate& train);
     QPointF positionFor(const api::TrainUpdate& train, api::SimTime updateTime,
                         double modelTime) const;
     QPointF deadEndPoint(int station) const;
@@ -55,6 +56,7 @@ private:
     std::vector<double> stationPositions_;
     std::map<int, TrainGraphics> trainItems_;
     std::map<int, api::TrainUpdate> trainStates_;
+    std::map<int, api::SimTime> trainUpdateTimes_;
 };
 
 } // namespace ubahn::app
