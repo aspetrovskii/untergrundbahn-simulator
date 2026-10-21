@@ -126,7 +126,7 @@ inline void placeInDeadEnd(EngineState& state, int train, api::Term term) {
 // Appends a trip with id == index. Does not assign it to a train.
 // A stub buildTrip (BE-05) returns an empty plan; the vectors are then sized to N.
 inline Trip& addTrip(EngineState& state, api::Dir dir, api::SimTime slot, int32_t dwellPlan) {
-    const int32_t id = static_cast<int32_t>(state.trips.size());
+    const int32_t id = state.nextTripId;
     Trip trip = buildTrip(state.line, id, dir, slot, dwellPlan);
     if (trip.aPlan.empty() || trip.dPlan.empty()) {
         const int n = std::max(state.line.n, 1);
@@ -139,8 +139,7 @@ inline Trip& addTrip(EngineState& state, api::Dir dir, api::SimTime slot, int32_
     trip.dwellPlan = dwellPlan;
     trip.trainId = -1;
     state.nextTripId = id + 1;
-    state.trips.push_back(std::move(trip));
-    return state.trips.back();
+    return appendTrip(state, std::move(trip));
 }
 
 // Writes train.next only. The heap is left untouched.

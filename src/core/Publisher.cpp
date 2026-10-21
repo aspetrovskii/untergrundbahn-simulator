@@ -277,9 +277,13 @@ std::optional<api::ViewDelta> collectDelta(EngineState& state, api::SimTime now,
     api::ViewDelta delta;
     delta.t = now;
     const bool snapshot = mode == DeltaMode::Snapshot;
+    // Seek must also check extrapolation for trains that did not receive an event.
+    if (mode != DeltaMode::Play) {
+        state.changedTrains.markAll();
+        state.changedBoards.markAll();
+    }
 
-    const int trainCount = static_cast<int>(state.trains.size());
-    for (int id = 0; id < trainCount; ++id) {
+    for (const int id : state.changedTrains.ordered()) {
         const api::TrainUpdate view = trainView(state, id, now);
         const std::optional<api::TrainUpdate>& sent =
             state.sentTrains[static_cast<std::size_t>(id)];
@@ -296,22 +300,22 @@ std::optional<api::ViewDelta> collectDelta(EngineState& state, api::SimTime now,
         state.sentTrainAt[static_cast<std::size_t>(id)] = now;
     }
 
-    for (int dirIndex = 0; dirIndex < 2; ++dirIndex) {
+    state.changedTrains.clear();
+
+    for (const int board : state.changedBoards.ordered()) {
+        const int dirIndex = board / state.line.n;
         const api::Dir dir = static_cast<api::Dir>(dirIndex);
-        const int posCount =
-            static_cast<int>(state.platforms[static_cast<std::size_t>(dirIndex)].size());
-        for (int pos = 0; pos < posCount; ++pos) {
-            const api::BoardUpdate view = boardView(state, dir, pos);
-            const std::optional<api::BoardUpdate>& sent =
-                state.sentBoards[static_cast<std::size_t>(dirIndex)][static_cast<std::size_t>(pos)];
-            if (!snapshot && sent.has_value() && !boardDiffers(*sent, view)) {
-                continue;
-            }
-            delta.boards.push_back(view);
-            state.sentBoards[static_cast<std::size_t>(dirIndex)][static_cast<std::size_t>(pos)] =
-                view;
+        const int pos = board % state.line.n;
+        const api::BoardUpdate view = boardView(state, dir, pos);
+        const std::optional<api::BoardUpdate>& sent =
+            state.sentBoards[static_cast<std::size_t>(dirIndex)][static_cast<std::size_t>(pos)];
+        if (!snapshot && sent.has_value() && !boardDiffers(*sent, view)) {
+            continue;
         }
+        delta.boards.push_back(view);
+        state.sentBoards[static_cast<std::size_t>(dirIndex)][static_cast<std::size_t>(pos)] = view;
     }
+    state.changedBoards.clear();
 
     const api::ClockUpdate clock = clockView(state, now);
     if (snapshot || !state.sentClock.has_value() || clockDiffers(*state.sentClock, clock)) {

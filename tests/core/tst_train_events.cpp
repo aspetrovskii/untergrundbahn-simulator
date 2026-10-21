@@ -252,7 +252,7 @@ void TrainEventsTest::originDepartureLeavesSlotQueue() {
     state.trains[0].aAct = now - 60;
     const int32_t sentId = addTrip(state, Dir::I, now, 60).id;
     const int32_t laterId = addTrip(state, Dir::I, now + 180, 60).id;
-    state.trips[static_cast<std::size_t>(sentId)].trainId = 0;
+    (*ubahn::core::tripById(state, sentId)).trainId = 0;
     state.trains[0].tripId = sentId;
     auto& queue = slotQueue(state, Term::A);
     queue.clear();

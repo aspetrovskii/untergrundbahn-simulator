@@ -45,6 +45,7 @@ set(UBAHN_CORE_TESTS
     tst_dispatcher
     tst_calendar
     tst_publisher
+    tst_performance_regressions
     tst_stats
     tst_invariants
     tst_acceptance_nodelay

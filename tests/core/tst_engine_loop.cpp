@@ -104,6 +104,8 @@ void recordCalendar(ubahn::core::EngineState&, ubahn::api::SimTime, ubahn::core:
 void noteDelay(ubahn::core::EngineState& state, int train, ubahn::api::SimTime,
                ubahn::core::DirtySet&) {
     delaySizes.push_back(static_cast<int>(state.pendingDelays.size()));
+    QCOMPARE(state.pendingWarnings.size(), std::size_t{0});
+    state.pendingWarnings.push_back({});
     ubahn::api::DelayNotice notice;
     notice.trainId = train;
     notice.seconds = 10;

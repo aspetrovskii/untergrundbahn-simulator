@@ -8,12 +8,15 @@
 #include "core/Stats.h"
 #include "core/Trips.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <deque>
 #include <functional>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace ubahn::core {
@@ -125,7 +128,7 @@ struct Train {
     api::Dir dir = api::Dir::I;
     int pos = 0; // along dir: dwell station, or the span's start station
     api::Term depotAt = api::Term::A;
-    int tripId = -1; // index into EngineState::trips, or -1
+    int tripId = -1; // stable trip id, or -1
 
     api::SimTime aAct = 0;
     // Departure with the dwell decision applied and no holding yet (ALGORITHM 7.2).
@@ -189,10 +192,11 @@ struct CalendarState {
 // A popped id may be pushed again. Cascade order is this order (ALGORITHM 6.2).
 class DirtySet {
 public:
-    explicit DirtySet(int owners) : mark_(static_cast<std::size_t>(owners > 0 ? owners : 0), 0) {}
+    explicit DirtySet(int owners = 0)
+        : order_(static_cast<std::size_t>(owners > 0 ? owners : 0)), mark_(order_.size(), 0) {}
 
-    bool empty() const { return order_.empty(); }
-    int size() const { return static_cast<int>(order_.size()); }
+    bool empty() const { return size_ == 0; }
+    int size() const { return static_cast<int>(size_); }
 
     bool contains(int id) const {
         if (id < 0 || id >= static_cast<int>(mark_.size())) {
@@ -206,27 +210,75 @@ public:
             return;
         }
         mark_[static_cast<std::size_t>(id)] = 1;
-        order_.push_back(id);
+        order_[(head_ + size_) % order_.size()] = id;
+        ++size_;
     }
 
     // Precondition: !empty().
     int pop() {
-        const int id = order_.front();
-        order_.pop_front();
+        const int id = order_[head_];
+        head_ = (head_ + 1) % order_.size();
+        --size_;
         mark_[static_cast<std::size_t>(id)] = 0;
         return id;
     }
 
     void clear() {
-        for (const int id : order_) {
-            mark_[static_cast<std::size_t>(id)] = 0;
+        while (!empty()) {
+            pop();
         }
-        order_.clear();
+        head_ = 0;
     }
 
 private:
-    std::deque<int> order_;
+    std::vector<int> order_;
     std::vector<char> mark_;
+    std::size_t head_ = 0;
+    std::size_t size_ = 0;
+};
+
+// Sparse publication candidates. Order is restored before comparing with sent packets.
+class ViewChanges {
+public:
+    explicit ViewChanges(int count = 0) : marked_(static_cast<std::size_t>(count), 0) {
+        ids_.reserve(marked_.size());
+    }
+    void mark(int id) {
+        if (id >= 0 && id < static_cast<int>(marked_.size()) && !marked_[id]) {
+            marked_[id] = 1;
+            ids_.push_back(id);
+        }
+    }
+    void markAll() {
+        for (int id = 0; id < static_cast<int>(marked_.size()); ++id) {
+            mark(id);
+        }
+    }
+    const std::vector<int>& ordered() {
+        std::sort(ids_.begin(), ids_.end());
+        return ids_;
+    }
+    void clear() {
+        for (int id : ids_) {
+            marked_[id] = 0;
+        }
+        ids_.clear();
+    }
+
+private:
+    std::vector<int> ids_;
+    std::vector<char> marked_;
+};
+
+struct WaiterRef {
+    api::SimTime slot = 0;
+    int id = -1;
+};
+
+struct LoopWorkspace {
+    DirtySet dirty;
+    std::vector<char> deferred, retried;
+    std::vector<WaiterRef> waiters;
 };
 
 // The whole model. Modules are free functions over this; they do not keep their own copies.
@@ -242,8 +294,11 @@ struct EngineState {
     std::array<std::vector<Platform>, 2> platforms; // [dir][pos]
     std::array<Terminal, 2> terms;                  // [Term]
     std::array<TrackList, 2> tracks;                // [dir]
-    // Append-only. trips[id].id == id. nextTripId is the next id to issue.
+    // Dense storage; ids survive compaction. Never use an id as a vector index.
     std::vector<Trip> trips;
+    std::unordered_map<int32_t, std::size_t> tripIndex;
+    std::vector<char> retainedTrips;
+    int32_t lastTripSweep = 0;
     int32_t nextTripId = 0;
 
     IndexedMinHeap heap{0};
@@ -251,7 +306,7 @@ struct EngineState {
     Stats stats;
     CalendarState calendar;
 
-    // Current instant only. collectDelta takes both. runUntil clears delays when emit is false.
+    // Current instant only. collectDelta takes both; silent runs discard both.
     std::vector<api::DelayNotice> pendingDelays;
     std::vector<api::Warning> pendingWarnings;
 
@@ -267,6 +322,8 @@ struct EngineState {
     std::array<std::vector<std::optional<api::BoardUpdate>>, 2> sentBoards;
     std::optional<api::ClockUpdate> sentClock;
     std::vector<api::SimTime> sentTrainAt;
+    ViewChanges changedTrains, changedBoards;
+    LoopWorkspace loop;
 };
 
 constexpr api::Term termOfArrival(api::Dir dir) {
@@ -307,6 +364,17 @@ inline const Platform& platformAt(const EngineState& state, int dirIndex, int po
     return state.platforms[static_cast<std::size_t>(dirIndex)][static_cast<std::size_t>(pos)];
 }
 
+inline void markTrainView(EngineState& state, int id) {
+    state.changedTrains.mark(id);
+    if (id < 0 || id >= static_cast<int>(state.trains.size())) {
+        return;
+    }
+    const Train& train = state.trains[static_cast<std::size_t>(id)];
+    if (train.pos >= 0 && train.pos < state.line.n) {
+        state.changedBoards.mark(static_cast<int>(train.dir) * state.line.n + train.pos);
+    }
+}
+
 // B arrives on platforms[I][N-1] and departs on platforms[II][0]. A is the opposite
 // (ALGORITHM 5.4). Precondition: that platform row is non-empty.
 inline Platform& arrivalPlatform(EngineState& state, api::Term term) {
@@ -331,15 +399,63 @@ inline const Platform& departurePlatform(const EngineState& state, api::Term ter
     return platformAt(state, departureDirIndex(term), 0);
 }
 
+inline Trip* tripById(EngineState& state, int32_t id) {
+    const auto found = state.tripIndex.find(id);
+    return found == state.tripIndex.end() ? nullptr : &state.trips[found->second];
+}
+
+inline const Trip* tripById(const EngineState& state, int32_t id) {
+    const auto found = state.tripIndex.find(id);
+    return found == state.tripIndex.end() ? nullptr : &state.trips[found->second];
+}
+
+inline Trip& appendTrip(EngineState& state, Trip trip) {
+    state.tripIndex.emplace(trip.id, state.trips.size());
+    state.trips.push_back(std::move(trip));
+    return state.trips.back();
+}
+
+// Only call between handlers, with no borrowed Trip pointers. Keeps both owners:
+// trains (including the inbound plan during turnaround) and terminal slot queues.
+inline void reclaimTrips(EngineState& state) {
+    auto& retained = state.retainedTrips;
+    retained.assign(state.trips.size(), 0);
+    const auto keep = [&](int32_t id) {
+        const auto found = state.tripIndex.find(id);
+        if (found != state.tripIndex.end()) {
+            retained[found->second] = 1;
+        }
+    };
+    for (const Train& train : state.trains) {
+        keep(train.tripId);
+    }
+    for (const Terminal& terminal : state.terms) {
+        for (const int32_t id : terminal.slots) {
+            keep(id);
+        }
+    }
+    std::size_t out = 0;
+    for (std::size_t i = 0; i < state.trips.size(); ++i) {
+        if (!retained[i]) {
+            state.tripIndex.erase(state.trips[i].id);
+            continue;
+        }
+        if (out != i) {
+            state.trips[out] = std::move(state.trips[i]);
+        }
+        state.tripIndex[state.trips[out].id] = out;
+        ++out;
+    }
+    state.trips.resize(out);
+    state.lastTripSweep = state.nextTripId;
+}
+
 inline Trip* tripOf(EngineState& state, int train) {
     if (train < 0 || train >= static_cast<int>(state.trains.size())) {
         return nullptr;
     }
     const int id = state.trains[static_cast<std::size_t>(train)].tripId;
-    if (id < 0 || id >= static_cast<int>(state.trips.size())) {
-        return nullptr;
-    }
-    return &state.trips[static_cast<std::size_t>(id)];
+    return tripById(state, id);
 }
 
 inline const Trip* tripOf(const EngineState& state, int train) {
@@ -347,10 +463,7 @@ inline const Trip* tripOf(const EngineState& state, int train) {
         return nullptr;
     }
     const int id = state.trains[static_cast<std::size_t>(train)].tripId;
-    if (id < 0 || id >= static_cast<int>(state.trips.size())) {
-        return nullptr;
-    }
-    return &state.trips[static_cast<std::size_t>(id)];
+    return tripById(state, id);
 }
 
 } // namespace ubahn::core
