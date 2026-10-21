@@ -102,6 +102,7 @@ private slots:
     void shiftPastQueueEndDirtiesLastHolder();
     void latePlatformHolderKeepsSlot();
     void emptyDepotWarnsNoTrain();
+    void repeatedShortageWarnsOncePerTrip();
     void assignTripTakesEarliestUnassigned();
     void withdrawsWhenLineHasMoreTrainsThanNeed();
     void surplusTrainKeepsNearestFreeSlot();
@@ -173,7 +174,7 @@ void DispatcherTest::turnaroundKeepsSlotWhenReady() {
     ubahn::core::DirtySet dirty(ubahn::core::ownerCount(static_cast<int>(state.trains.size())));
     ubahn::core::handleDispatcher(state, ubahn::api::Term::A, now, dirty);
 
-    QCOMPARE(state.trips[static_cast<std::size_t>(tripId)].trainId, 0);
+    QCOMPARE((*ubahn::core::tripById(state, tripId)).trainId, 0);
     QCOMPARE(state.trains[0].tripId, tripId);
     QCOMPARE(static_cast<int>(state.terms[0].depot.size()), depotBefore);
     QVERIFY(state.pendingWarnings.empty());
@@ -204,8 +205,8 @@ void DispatcherTest::lateTurnaroundLosesSlotToDepot() {
     ubahn::core::DirtySet dirty(ubahn::core::ownerCount(static_cast<int>(state.trains.size())));
     ubahn::core::handleDispatcher(state, ubahn::api::Term::A, now, dirty);
 
-    const ubahn::core::Trip& early = state.trips[static_cast<std::size_t>(earlyId)];
-    const ubahn::core::Trip& next = state.trips[static_cast<std::size_t>(nextId)];
+    const ubahn::core::Trip& early = (*ubahn::core::tripById(state, earlyId));
+    const ubahn::core::Trip& next = (*ubahn::core::tripById(state, nextId));
     QCOMPARE(early.trainId, depotTrain);
     QCOMPARE(state.trains[static_cast<std::size_t>(depotTrain)].tripId, early.id);
     QCOMPARE(next.trainId, 0);
@@ -214,6 +215,34 @@ void DispatcherTest::lateTurnaroundLosesSlotToDepot() {
     QVERIFY(dirty.contains(depotTrain));
     QVERIFY(dirty.contains(0));
     QVERIFY(state.pendingWarnings.empty());
+}
+
+void DispatcherTest::repeatedShortageWarnsOncePerTrip() {
+    auto state = opened(4, 3000);
+    const ubahn::api::SimTime now = 8 * 3600;
+    state.now = now;
+    for (const auto term : {ubahn::api::Term::A, ubahn::api::Term::B}) {
+        parkCursor(state, term, now + 1000);
+        state.terms[static_cast<std::size_t>(term)].depot.clear();
+        queueTrip(state, term, now + 20, -1);
+        queueTrip(state, term, now + 30, -1);
+    }
+    ubahn::core::DirtySet dirty(ubahn::core::ownerCount(4));
+    for (int second = 0; second < 10; ++second) {
+        for (const auto term : {ubahn::api::Term::A, ubahn::api::Term::B}) {
+            ubahn::core::handleDispatcher(state, term, now + second, dirty);
+        }
+        if (second == 0) {
+            QCOMPARE(state.pendingWarnings.size(), std::size_t{4});
+            state.pendingWarnings.clear();
+        } else {
+            QVERIFY(state.pendingWarnings.empty());
+        }
+    }
+    queueTrip(state, ubahn::api::Term::A, now + 40, -1);
+    ubahn::core::handleDispatcher(state, ubahn::api::Term::A, now + 10, dirty);
+    QCOMPARE(state.pendingWarnings.size(), std::size_t{1});
+    QCOMPARE(state.pendingWarnings[0].tripSlot, now + 40);
 }
 
 void DispatcherTest::shiftPastQueueEndDirtiesLastHolder() {
@@ -260,9 +289,9 @@ void DispatcherTest::latePlatformHolderKeepsSlot() {
     ubahn::core::DirtySet dirty(ubahn::core::ownerCount(static_cast<int>(state.trains.size())));
     ubahn::core::handleDispatcher(state, ubahn::api::Term::A, now, dirty);
 
-    QCOMPARE(state.trips[static_cast<std::size_t>(tripId)].trainId, 0);
+    QCOMPARE((*ubahn::core::tripById(state, tripId)).trainId, 0);
     QCOMPARE(state.trains[0].tripId, tripId);
-    QCOMPARE(state.trips[static_cast<std::size_t>(nextId)].trainId, -1);
+    QCOMPARE((*ubahn::core::tripById(state, nextId)).trainId, -1);
     QCOMPARE(static_cast<int>(state.terms[0].depot.size()), depotBefore);
     QVERIFY(!dirty.contains(0));
     const ubahn::api::SimTime lead =
@@ -300,10 +329,10 @@ void DispatcherTest::assignTripTakesEarliestUnassigned() {
 
     ubahn::core::assignTripFromTurnaround(state, 0, ubahn::api::Term::A);
 
-    QCOMPARE(state.trips[static_cast<std::size_t>(takenId)].trainId, 1);
-    QCOMPARE(state.trips[static_cast<std::size_t>(earliestId)].trainId, 0);
+    QCOMPARE((*ubahn::core::tripById(state, takenId)).trainId, 1);
+    QCOMPARE((*ubahn::core::tripById(state, earliestId)).trainId, 0);
     QCOMPARE(state.trains[0].tripId, earliestId);
-    QCOMPARE(state.trips[static_cast<std::size_t>(laterId)].trainId, -1);
+    QCOMPARE((*ubahn::core::tripById(state, laterId)).trainId, -1);
     QVERIFY(listed(state, ubahn::api::Term::A, earliestId));
 }
 
@@ -422,19 +451,19 @@ void DispatcherTest::appliedScheduleRebuildsUnassignedSlots() {
     QCOMPARE(state.params.schedule.days[0].windows[0].headway, oldHeadway);
 
     QVERIFY(listed(state, ubahn::api::Term::A, assignedId));
-    QCOMPARE(state.trips[static_cast<std::size_t>(assignedId)].trainId, 0);
-    QCOMPARE(state.trips[static_cast<std::size_t>(assignedId)].slot, assignedSlot);
-    QCOMPARE(state.trips[static_cast<std::size_t>(assignedId)].dwellPlan, assignedDwell);
+    QCOMPARE((*ubahn::core::tripById(state, assignedId)).trainId, 0);
+    QCOMPARE((*ubahn::core::tripById(state, assignedId)).slot, assignedSlot);
+    QCOMPARE((*ubahn::core::tripById(state, assignedId)).dwellPlan, assignedDwell);
     QVERIFY(listed(state, ubahn::api::Term::A, keptId));
     QVERIFY(!listed(state, ubahn::api::Term::A, droppedId));
-    QCOMPARE(state.trips[static_cast<std::size_t>(droppedId)].trainId, -1);
+    QVERIFY(ubahn::core::tripById(state, droppedId) == nullptr);
 
     const int32_t step = ubahn::core::hEffAt(state.analysis, state.schedule, boundary);
     QVERIFY(step > 120);
     QVERIFY(state.terms[0].cursor.nextSlotTime > boundary + 100);
     std::vector<ubahn::api::SimTime> rebuilt;
     for (const int32_t id : tripQueue(state, ubahn::api::Term::A)) {
-        const ubahn::core::Trip& trip = state.trips[static_cast<std::size_t>(id)];
+        const ubahn::core::Trip& trip = (*ubahn::core::tripById(state, id));
         if (trip.trainId < 0 && trip.slot > boundary) {
             rebuilt.push_back(trip.slot);
         }

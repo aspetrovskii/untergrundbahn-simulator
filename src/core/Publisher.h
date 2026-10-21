@@ -16,7 +16,8 @@ api::ClockUpdate clockView(const EngineState& state, api::SimTime now);
 
 enum class DeltaMode : uint8_t { Play, Snapshot, Seek };
 
-// Play: objects that differ from the last packet. Snapshot: every train, board, and the clock.
+// Play: compare marked candidates with the last packet. Mutators mark changedTrains/Boards.
+// Snapshot: every train, board, and the clock.
 // Seek: Play, plus a train whose along disagrees with extrapolation by more than 1e-4
 // (ALGORITHM 13). Updates the sent* cache. Takes pendingDelays and pendingWarnings.
 // nullopt when nothing changed. A delta that contains only messages is returned.

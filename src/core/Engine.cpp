@@ -109,11 +109,6 @@ api::SimTime slotOf(const EngineState& state, int train) {
     return trip->slot;
 }
 
-struct WaiterRef {
-    api::SimTime slot = 0;
-    int id = -1;
-};
-
 bool earlierSlot(const WaiterRef& left, const WaiterRef& right) {
     if (left.slot != right.slot) {
         return left.slot < right.slot;
@@ -180,7 +175,8 @@ void pushAffected(EngineState& state, int train, DirtySet& dirty) {
     dirty.push(behind(state, train));
 
     const Train& unit = state.trains[static_cast<std::size_t>(train)];
-    std::vector<WaiterRef> waiters;
+    auto& waiters = state.loop.waiters;
+    waiters.clear();
     for (int index = 0; index < 2; ++index) {
         const api::Term term = static_cast<api::Term>(index);
         const Terminal& terminal = state.terms[static_cast<std::size_t>(index)];
@@ -339,6 +335,14 @@ EngineState initEngineState(const api::SimParams& params, uint64_t seed) {
     state.sentBoards[1].assign(static_cast<std::size_t>(n), std::nullopt);
     state.sentTrains.assign(static_cast<std::size_t>(k), std::nullopt);
     state.sentTrainAt.assign(static_cast<std::size_t>(k), api::kNoTime);
+    state.changedTrains = ViewChanges(k);
+    state.changedBoards = ViewChanges(2 * n);
+    state.changedTrains.markAll();
+    state.changedBoards.markAll();
+    state.loop.dirty = DirtySet(ownerCount(k));
+    state.loop.deferred.resize(static_cast<std::size_t>(ownerCount(k)));
+    state.loop.retried.resize(static_cast<std::size_t>(ownerCount(k)));
+    state.loop.waiters.reserve(static_cast<std::size_t>(k + 4));
 
     state.heap = IndexedMinHeap(ownerCount(k));
     state.rng = Rng(seed);
@@ -357,6 +361,9 @@ bool runCascade(EngineState& state, DirtySet& dirty, api::SimTime now, const Han
     int budget = cascadeBudget(fleet);
     while (!dirty.empty()) {
         const int owner = dirty.pop();
+        if (owner >= 0 && owner < fleet) {
+            markTrainView(state, owner);
+        }
         const NextEvent updated = nextFor(state, owner, now, handlers);
         if (updated == ownerNext(state, owner)) {
             continue;
@@ -429,8 +436,10 @@ bool drainInstant(EngineState& state, api::SimTime now, const Handlers& handlers
     state.now = now;
     const int fleet = fleetOf(state);
     const int owners = ownerCount(fleet);
-    std::vector<char> deferred(static_cast<std::size_t>(owners), 0);
-    std::vector<char> retried(static_cast<std::size_t>(owners), 0);
+    auto& deferred = state.loop.deferred;
+    auto& retried = state.loop.retried;
+    std::fill(deferred.begin(), deferred.end(), 0);
+    std::fill(retried.begin(), retried.end(), 0);
     // Priority 2 is the last movement priority (arrivals and resource releases).
     // Rejected leaves are priority 1 and must run again before a dispatcher wake.
     const uint8_t movement = priorityOf(EventType::PlatformReachedFromDepot);
@@ -474,7 +483,8 @@ bool drainInstant(EngineState& state, api::SimTime now, const Handlers& handlers
 
         const EventKey key = state.heap.pop();
         const NextEvent before = ownerNext(state, key.owner);
-        DirtySet dirty(owners);
+        auto& dirty = state.loop.dirty;
+        dirty.clear();
         dispatchEvent(state, key.owner, now, dirty, handlers);
         dirty.push(key.owner);
         if (!runCascade(state, dirty, now, handlers)) {
@@ -551,6 +561,7 @@ void Engine::runUntil(api::SimTime t, bool emit) {
             }
         } else {
             state_.pendingDelays.clear();
+            state_.pendingWarnings.clear();
         }
     }
     state_.now = t;

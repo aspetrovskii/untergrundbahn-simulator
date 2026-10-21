@@ -17,6 +17,7 @@ struct Trip {
     std::vector<api::SimTime> dPlan;
     int32_t dwellPlan = 0;
     int trainId = -1;
+    bool shortageReported = false;
 };
 
 Trip buildTrip(const Line& line, int32_t id, api::Dir dir, api::SimTime slot, int32_t dwellPlan);

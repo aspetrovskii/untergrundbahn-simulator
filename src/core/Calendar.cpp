@@ -56,6 +56,7 @@ void setOffHours(EngineState& state, bool offHours, DirtySet* dirty) {
             continue;
         }
         train.flags.offHours = offHours;
+        state.changedTrains.mark(id);
         if (dirty != nullptr) {
             dirty->push(id);
         }
@@ -75,6 +76,7 @@ void moveTail(std::deque<int>& from, std::deque<int>& to, int count, EngineState
     const auto split = from.end() - count;
     for (auto it = split; it != from.end(); ++it) {
         state.trains[static_cast<std::size_t>(*it)].depotAt = dest;
+        state.changedTrains.mark(*it);
         to.push_back(*it);
     }
     from.erase(split, from.end());

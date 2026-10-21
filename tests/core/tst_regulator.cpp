@@ -270,8 +270,8 @@ void RegulatorTest::earliestArrivalUsesLeaderProjection() {
     planTrip(state, 0, Dir::I, 0, 60);
     planTrip(state, 1, Dir::I, 0, 60);
     // Index after both inserts: addTrip can reallocate state.trips.
-    Trip& follower = state.trips[static_cast<std::size_t>(state.trains[0].tripId)];
-    Trip& leader = state.trips[static_cast<std::size_t>(state.trains[1].tripId)];
+    Trip& follower = (*ubahn::core::tripById(state, state.trains[0].tripId));
+    Trip& leader = (*ubahn::core::tripById(state, state.trains[1].tripId));
     follower.aPlan[1] = 1000;
     leader.aPlan[1] = 2000;
     leader.dPlan[1] = 2060;
@@ -449,7 +449,7 @@ void RegulatorTest::delayAheadOnlyPostpones() {
 
     ubahn::core::platformAt(state, 0, 0).occupant = -1;
     ubahn::core::platformAt(state, 0, 1).occupant = -1;
-    Trip& follower = state.trips[static_cast<std::size_t>(state.trains[0].tripId)];
+    Trip& follower = (*ubahn::core::tripById(state, state.trains[0].tripId));
     follower.aPlan[1] = 10000;
     ubahn::core::placeOnSpan(state, 0, Dir::I, 0, 10000, 10120);
     ubahn::core::setNext(state, 0, at(EventType::Arrive, 10080));
