@@ -37,17 +37,13 @@ constexpr double kTrainHeight = 20.0;
 
 double pixelsPerMeter() {
     const auto presets = api::builtinPresets();
-    const auto preset = std::find_if(presets.begin(), presets.end(), [](const api::Preset& value) {
-        return value.id == "training-8";
-    });
-    if (preset == presets.end()) {
+    if (presets.empty()) {
         return 0.0;
     }
-    const double referenceLength =
-        std::accumulate(preset->params.line.spans.begin(), preset->params.line.spans.end(), 0.0,
-                        [](double length, const api::SpanInput& span) {
-                            return length + span.lengthM;
-                        });
+    const auto& spans = presets.front().params.line.spans;
+    const double referenceLength = std::accumulate(
+        spans.begin(), spans.end(), 0.0,
+        [](double length, const api::SpanInput& span) { return length + span.lengthM; });
     return referenceLength > 0.0 ? kReferenceLineWidth / referenceLength : 0.0;
 }
 

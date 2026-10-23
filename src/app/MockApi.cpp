@@ -171,9 +171,9 @@ std::vector<ValidationIssue> validateSchedule(const LineConfig& line,
 std::vector<ValidationIssue> validate(const SimParams& params) {
     std::vector<ValidationIssue> issues = validateSchedule(params.line, params.schedule);
     const auto stationCount = params.line.stationNames.size();
-    if (stationCount < 7 || stationCount > 20) {
+    if (stationCount < 4 || stationCount > 24) {
         addIssue(issues, "line.stationNames", IssueCode::StationCountOutOfRange,
-                 "Число станций должно быть от 7 до 20");
+                 "Число станций должно быть от 4 до 24");
     }
     if (stationCount == 0 || params.line.spans.size() + 1 != stationCount) {
         addIssue(issues, "line.spans", IssueCode::SpanCountMismatch,

@@ -50,9 +50,9 @@ private slots:
 
 void LineViewTest::supportsAllowedStationCounts_data() {
     QTest::addColumn<int>("stationCount");
-    QTest::newRow("seven") << 7;
+    QTest::newRow("four") << 4;
     QTest::newRow("eight") << 8;
-    QTest::newRow("twenty") << 20;
+    QTest::newRow("twenty-four") << 24;
 }
 
 void LineViewTest::supportsAllowedStationCounts() {
@@ -96,9 +96,9 @@ void LineViewTest::usesTrainingPresetAsFixedDistanceScale() {
 
 void LineViewTest::fitsAndZoomsOutForLongestLine() {
     ubahn::app::LineView view;
-    auto line = lineWithStations(20);
+    auto line = lineWithStations(24);
     for (auto& span : line.spans) {
-        span.lengthM = 5000.0;
+        span.lengthM = 6500.0;
     }
     view.resize(800, 500);
     view.setLine(line);
@@ -114,7 +114,7 @@ void LineViewTest::fitsAndZoomsOutForLongestLine() {
     }
     QVERIFY(view.transform().m11() < fittedScale);
     const int left = view.mapFromScene(QPointF(view.stationX(0), 210)).x();
-    const int right = view.mapFromScene(QPointF(view.stationX(19), 210)).x();
+    const int right = view.mapFromScene(QPointF(view.stationX(23), 210)).x();
     QVERIFY(left >= 0);
     QVERIFY(right < view.viewport()->width());
 }
