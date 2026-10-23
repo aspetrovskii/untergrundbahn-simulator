@@ -84,9 +84,8 @@ public:
     using SimController::SimController;
 
     void start(const SimParams& params) override {
-        (void)params;
         emit started(app::mock::runInfo());
-        for (const auto& chunk : app::mock::viewChunks()) {
+        for (const auto& chunk : app::mock::viewChunks(params.line)) {
             emit chunkReady(chunk);
         }
         emit summaryReady(app::mock::summary());

@@ -7,7 +7,7 @@
 namespace ubahn::app::mock {
 
 api::RunInfo runInfo();
-std::vector<api::ViewChunkPtr> viewChunks();
+std::vector<api::ViewChunkPtr> viewChunks(const api::LineConfig& line);
 api::SimSummary summary();
 
 } // namespace ubahn::app::mock
