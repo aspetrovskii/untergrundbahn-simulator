@@ -3,6 +3,7 @@
 // Manual state for module tests. Placement does not edit the track list:
 // set prevOnTrack / nextOnTrack / tracks yourself. Helpers do not insert heap entries.
 
+#include "api/Functions.h"
 #include "core/Engine.h"
 #include "core/Trips.h"
 
@@ -46,6 +47,19 @@ inline api::LineConfig makeLineConfig(const std::vector<double>& lengths,
         }
     }
     return cfg;
+}
+
+// SPEC 14.5 load, N = 20: longer than any preset. 400..5000 m spans with the default tStd,
+// the line the performance baselines were recorded on. Fleet is the minimum for all windows.
+inline api::SimParams twentyStationParams() {
+    api::SimParams params;
+    params.line = makeLineConfig({4600, 4100, 3200, 2800, 1950, 1700, 1200, 900, 600, 500, 400, 800,
+                                  1050, 1400, 1650, 2400, 3050, 4500, 5000},
+                                 {});
+    params.schedule = api::defaultSchedule();
+    params.period = {api::kOpenTod, api::kOpenTod + 6 * 3600};
+    params.line.fleetSize = api::analyze(params.line, params.schedule).minFleetForAllWindows;
+    return params;
 }
 
 // One window per day, 06:00–24:00, shared delay range SPEC 6.3.

@@ -1,6 +1,7 @@
 #include "api/Functions.h"
 
 #include <QtTest>
+#include <cmath>
 #include <optional>
 #include <vector>
 
@@ -26,8 +27,8 @@ void expectPlaybackDefaults(const ubahn::api::SimParams& params) {
 }
 
 void expectLineDefaults(const ubahn::api::LineConfig& line) {
-    QCOMPARE(line.dwellMin, 40);
-    QCOMPARE(line.headwayMin, 65);
+    QCOMPARE(line.dwellMin, 30);
+    QCOMPARE(line.headwayMin, 90);
     QCOMPARE(line.tClear, 25);
     QCOMPARE(line.kSlow, 1.3);
     QCOMPARE(line.toDeadEnd, 45);
@@ -95,18 +96,22 @@ void expectSameParams(const ubahn::api::SimParams& left, const ubahn::api::SimPa
     QCOMPARE(left.seed, right.seed);
 }
 
-// Empty tStd. `tie` is true when C3's coefficient and the physical minimum meet.
-void expectOpenSpan(const ubahn::api::LineConfig& line, int index, double lengthM, bool tie) {
-    const ubahn::api::SpanInput& span = line.spans[static_cast<size_t>(index)];
-    QCOMPARE(span.lengthM, lengthM);
-    QVERIFY(!span.tStd.has_value());
-    const int32_t phys = ubahn::api::physMinRunTime(lengthM);
-    const int32_t tMin = ubahn::api::minRunTime(line, index);
-    if (tie) {
-        QCOMPARE(tMin, phys);
-    } else {
-        QVERIFY(tMin > phys);
+void expectLine(const ubahn::api::LineConfig& line, const std::vector<const char*>& names,
+                const std::vector<double>& lengths, const std::vector<int32_t>& tStd) {
+    QCOMPARE(line.stationNames.size(), names.size());
+    for (size_t i = 0; i < names.size(); ++i) {
+        QCOMPARE(QString::fromStdString(line.stationNames[i]), QString(names[i]));
     }
+    QCOMPARE(line.spans.size(), lengths.size());
+    for (size_t i = 0; i < lengths.size(); ++i) {
+        QCOMPARE(line.spans[i].lengthM, lengths[i]);
+        QVERIFY(line.spans[i].tStd.has_value());
+        QCOMPARE(*line.spans[i].tStd, tStd[i]);
+    }
+}
+
+double speedKmh(const ubahn::api::SpanInput& span) {
+    return span.lengthM * 3.6 / static_cast<double>(*span.tStd);
 }
 
 } // namespace
@@ -120,23 +125,24 @@ private slots:
     void defaultScheduleMatchesSpec();
     void defaultParamsMatchesTraining();
     void trainingAnalysisMatchesBe04();
-    void minimalLineLeavesTStdEmpty();
-    void longLineLeavesTStdEmpty();
+    void shortLineMatches();
+    void cityLineMatches();
+    void spansRunAtMetroSpeed();
 };
 
 void PresetsTest::orderIdsAndSizes() {
     const std::vector<ubahn::api::Preset> presets = ubahn::api::builtinPresets();
     QCOMPARE(presets.size(), size_t{3});
 
-    QCOMPARE(QString::fromStdString(presets[0].id), QString("training-8"));
-    QCOMPARE(QString::fromStdString(presets[1].id), QString("minimal-7"));
-    QCOMPARE(QString::fromStdString(presets[2].id), QString("long-20"));
+    QCOMPARE(QString::fromStdString(presets[0].id), QString("metro-8"));
+    QCOMPARE(QString::fromStdString(presets[1].id), QString("short-4"));
+    QCOMPARE(QString::fromStdString(presets[2].id), QString("metro-12"));
     QCOMPARE(QString::fromStdString(presets[0].name), QString("Учебная, 8 станций"));
-    QCOMPARE(QString::fromStdString(presets[1].name), QString("Минимальная, 7 станций"));
-    QCOMPARE(QString::fromStdString(presets[2].name), QString("Длинная, 20 станций"));
+    QCOMPARE(QString::fromStdString(presets[1].name), QString("Короткая, 4 станции"));
+    QCOMPARE(QString::fromStdString(presets[2].name), QString("Городская, 12 станций"));
 
-    const int stationCount[] = {8, 7, 20};
-    const int fleet[] = {26, 23, 87};
+    const int stationCount[] = {8, 4, 12};
+    const int fleet[] = {25, 13, 41};
     for (int i = 0; i < 3; ++i) {
         const ubahn::api::SimParams& params = presets[static_cast<size_t>(i)].params;
         QCOMPARE(static_cast<int>(params.line.stationNames.size()), stationCount[i]);
@@ -151,21 +157,10 @@ void PresetsTest::orderIdsAndSizes() {
 }
 
 void PresetsTest::trainingLineMatchesSpec() {
-    const ubahn::api::LineConfig line = ubahn::api::builtinPresets().at(0).params.line;
-    const char* names[] = {"Северная",    "Полевая", "Заводская", "Университет",
-                           "Центральная", "Рынок",   "Парк",      "Южная"};
-    const double lengths[] = {1100, 780, 1700, 950, 1500, 860, 1400};
-    const int32_t tStd[] = {120, 90, 130, 100, 110, 95, 125};
-    for (int i = 0; i < 8; ++i) {
-        QCOMPARE(QString::fromStdString(line.stationNames[static_cast<size_t>(i)]),
-                 QString(names[i]));
-    }
-    for (int i = 0; i < 7; ++i) {
-        const ubahn::api::SpanInput& span = line.spans[static_cast<size_t>(i)];
-        QCOMPARE(span.lengthM, lengths[i]);
-        QVERIFY(span.tStd.has_value());
-        QCOMPARE(*span.tStd, tStd[i]);
-    }
+    expectLine(ubahn::api::builtinPresets().at(0).params.line,
+               {"Сосновая", "Липовая", "Мельничная", "Колокольная", "Торговая", "Ярмарочная",
+                "Овражная", "Тополиная"},
+               {1450, 1820, 1300, 2150, 1600, 1040, 2380}, {90, 108, 83, 124, 99, 73, 135});
 }
 
 void PresetsTest::defaultScheduleMatchesSpec() {
@@ -198,18 +193,18 @@ void PresetsTest::defaultParamsMatchesTraining() {
     const std::vector<ubahn::api::Preset> presets = ubahn::api::builtinPresets();
     const ubahn::api::Preset& training = presets.at(0);
     expectSameParams(params, training.params);
-    QCOMPARE(params.line.fleetSize, 26);
+    QCOMPARE(params.line.fleetSize, 25);
     expectPlaybackDefaults(params);
 }
 
 void PresetsTest::trainingAnalysisMatchesBe04() {
     const ubahn::api::SimParams params = ubahn::api::builtinPresets().at(0).params;
     const ubahn::api::ScheduleAnalysis analysis = ubahn::api::analyze(params.line, params.schedule);
-    const int32_t weekdayNeed[] = {16, 26, 18, 26, 9};
-    const int32_t weekendNeed[] = {7, 12, 7};
+    const int32_t weekdayNeed[] = {15, 25, 17, 25, 8};
+    const int32_t weekendNeed[] = {7, 11, 7};
 
-    QCOMPARE(analysis.minFleetForAllWindows, 26);
-    QCOMPARE(analysis.tCycle, 3060);
+    QCOMPARE(analysis.minFleetForAllWindows, 25);
+    QCOMPARE(analysis.tCycle, 2944);
     QCOMPARE(analysis.tTurn, 120);
     for (int day = 0; day < 5; ++day) {
         const std::vector<ubahn::api::WindowAnalysis>& rows =
@@ -231,37 +226,43 @@ void PresetsTest::trainingAnalysisMatchesBe04() {
     }
 }
 
-void PresetsTest::minimalLineLeavesTStdEmpty() {
-    const ubahn::api::LineConfig line = ubahn::api::builtinPresets().at(1).params.line;
-    const char* names[] = {"Пристань", "Берёзовая", "Слобода", "Ратуша",
-                           "Ярмарка",  "Роща",      "Застава"};
-    const double lengths[] = {400, 1200, 650, 2100, 800, 1500};
-    const bool tie[] = {true, true, false, false, false, true};
-    for (int i = 0; i < 7; ++i) {
-        QCOMPARE(QString::fromStdString(line.stationNames[static_cast<size_t>(i)]),
-                 QString(names[i]));
-    }
-    for (int i = 0; i < 6; ++i) {
-        expectOpenSpan(line, i, lengths[i], tie[i]);
-    }
+void PresetsTest::shortLineMatches() {
+    expectLine(ubahn::api::builtinPresets().at(1).params.line,
+               {"Маячная", "Рыбачья", "Гончарная", "Кирпичная"}, {1700, 2260, 1380},
+               {104, 130, 89});
 }
 
-void PresetsTest::longLineLeavesTStdEmpty() {
-    const ubahn::api::LineConfig line = ubahn::api::builtinPresets().at(2).params.line;
-    const char* names[] = {"Озёрная",    "Каменная",      "Луговая",   "Прядильная", "Набережная",
-                           "Крепостная", "Вишнёвая",      "Мостовая",  "Губернская", "Ткацкая",
-                           "Садовая",    "Привокзальная", "Кузнечная", "Звёздная",   "Ремесленная",
-                           "Соборная",   "Холмистая",     "Граничная", "Портовая",   "Дальняя"};
-    const double lengths[] = {4600, 4100, 3200, 2800, 1950, 1700, 1200, 900,  600, 500,
-                              400,  800,  1050, 1400, 1650, 2400, 3050, 4500, 5000};
-    const bool tie[] = {true, false, true, false, true, false, true, false, true, false,
-                        true, false, true, false, true, false, true, false, false};
-    for (int i = 0; i < 20; ++i) {
-        QCOMPARE(QString::fromStdString(line.stationNames[static_cast<size_t>(i)]),
-                 QString(names[i]));
-    }
-    for (int i = 0; i < 19; ++i) {
-        expectOpenSpan(line, i, lengths[i], tie[i]);
+void PresetsTest::cityLineMatches() {
+    expectLine(ubahn::api::builtinPresets().at(2).params.line,
+               {"Кедровая", "Янтарная", "Сенокосная", "Пасечная", "Ветряная", "Часовая", "Ратушная",
+                "Типографская", "Фонтанная", "Каретная", "Лодочная", "Затонная"},
+               {3850, 1560, 2040, 1350, 1780, 1180, 2290, 1630, 1920, 1410, 4200},
+               {198, 98, 121, 87, 108, 80, 132, 101, 114, 90, 216});
+}
+
+// Scheduled speed 50..70 km/h, 70 only from 3.5 km; tMin is the physical minimum, so
+// catch-up is bounded by 80 km/h and not by the 1.5 coefficient.
+void PresetsTest::spansRunAtMetroSpeed() {
+    for (const ubahn::api::Preset& preset : ubahn::api::builtinPresets()) {
+        const ubahn::api::LineConfig& line = preset.params.line;
+        int fastSpans = 0;
+        for (size_t i = 0; i < line.spans.size(); ++i) {
+            const ubahn::api::SpanInput& span = line.spans[i];
+            const QByteArray where = QByteArray::fromStdString(preset.id) + " span " +
+                                     QByteArray::number(static_cast<int>(i));
+            QVERIFY2(span.tStd.has_value(), where.constData());
+            QCOMPARE(std::fmod(span.lengthM, 10.0), 0.0);
+            const double speed = speedKmh(span);
+            QVERIFY2(speed >= 50.0 && speed <= 70.0 + 1e-9, where.constData());
+            if (speed > 66.0) {
+                ++fastSpans;
+                QVERIFY2(span.lengthM >= 3500.0, where.constData());
+            }
+            const int32_t phys = ubahn::api::physMinRunTime(span.lengthM);
+            QVERIFY2(*span.tStd >= phys, where.constData());
+            QCOMPARE(ubahn::api::minRunTime(line, static_cast<int>(i)), phys);
+        }
+        QCOMPARE(fastSpans, preset.id == "metro-12" ? 2 : 0);
     }
 }
 

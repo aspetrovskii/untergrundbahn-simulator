@@ -234,7 +234,7 @@ void ValidationTest::acceptedBounds_data() {
     QTest::newRow("step 240") << 32;
     QTest::newRow("rate 0") << 33;
     QTest::newRow("rate 1000") << 34;
-    QTest::newRow("N 7") << 35;
+    QTest::newRow("N 4") << 35;
     QTest::newRow("N 20") << 36;
     QTest::newRow("omitted tStd") << 37;
     QTest::newRow("probability 0 and 1") << 38;
@@ -361,7 +361,7 @@ void ValidationTest::acceptedBounds() {
         params.rate = 1000.0;
         break;
     case 35:
-        params.line = lineOf(7);
+        params.line = lineOf(4);
         break;
     case 36:
         params.line = lineOf(20);
@@ -572,13 +572,13 @@ void ValidationTest::rejectedRanges() {
 
 void ValidationTest::stationCount() {
     ubahn::api::SimParams low = looseParams();
-    low.line = lineOf(6);
+    low.line = lineOf(3);
     const std::vector<ubahn::api::ValidationIssue> lowIssues = ubahn::api::validate(low);
     QCOMPARE(lowIssues.size(), size_t{1});
     QCOMPARE(QString::fromStdString(lowIssues[0].field), QString("line.stationNames"));
     QCOMPARE(lowIssues[0].code, ubahn::api::IssueCode::StationCountOutOfRange);
     QCOMPARE(QString::fromStdString(lowIssues[0].message),
-             QString("Число станций 6 вне диапазона 7…20"));
+             QString("Число станций 3 вне диапазона 4…20"));
 
     ubahn::api::SimParams high = looseParams();
     high.line = lineOf(21);
@@ -587,7 +587,7 @@ void ValidationTest::stationCount() {
     QCOMPARE(QString::fromStdString(highIssues[0].field), QString("line.stationNames"));
     QCOMPARE(highIssues[0].code, ubahn::api::IssueCode::StationCountOutOfRange);
     QCOMPARE(QString::fromStdString(highIssues[0].message),
-             QString("Число станций 21 вне диапазона 7…20"));
+             QString("Число станций 21 вне диапазона 4…20"));
 }
 
 void ValidationTest::emptyLineReportsCountAndSpans() {

@@ -1,3 +1,4 @@
+#include "EngineFixture.h"
 #include "api/Functions.h"
 #include "core/Check.h"
 #include "core/Engine.h"
@@ -10,13 +11,7 @@
 namespace {
 
 ubahn::api::SimParams longDay() {
-    ubahn::api::SimParams params;
-    for (const ubahn::api::Preset& preset : ubahn::api::builtinPresets()) {
-        if (preset.id == "long-20") {
-            params = preset.params;
-            break;
-        }
-    }
+    ubahn::api::SimParams params = ubahn::core::twentyStationParams();
     // SPEC 14.5: 20 stations, fleet 60, one service day, no deltas.
     params.line.fleetSize = 60;
     params.period.start = ubahn::api::kOpenTod;

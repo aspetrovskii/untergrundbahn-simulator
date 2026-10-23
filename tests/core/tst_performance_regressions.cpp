@@ -163,7 +163,7 @@ void PerformanceRegressionsTest::sparsePublicationMatchesFullScan() {
     if (core::kCheckInvariants && fleet == 200) {
         QSKIP("Baseline c257117 fails C10 at 33221 with fleet=200, seed=42; run in Release");
     }
-    auto params = api::builtinPresets().back().params;
+    auto params = core::twentyStationParams();
     params.line.fleetSize = fleet;
     params.period = {api::kOpenTod, api::kSecondsPerDay + 7 * 3600};
     publication = {};
@@ -211,7 +211,7 @@ void PerformanceRegressionsTest::sparsePublicationMatchesFullScan() {
 }
 
 void PerformanceRegressionsTest::silentRunsDiscardWarningsAndBoundStorage() {
-    auto params = api::builtinPresets().back().params;
+    auto params = core::twentyStationParams();
     params.line.fleetSize = 60;
     params.period = {api::kOpenTod, 14 * api::SimTime(api::kSecondsPerDay)};
     storage = {};

@@ -31,47 +31,59 @@ DayProfile weekendProfile() {
     return day;
 }
 
-// Names and lengths only. tStd stays empty: buildLine fills defaultStdRunTime (decision R7).
-LineConfig lineFromLengths(std::vector<std::string> names, std::initializer_list<double> lengths) {
+struct SpanSpec {
+    double lengthM;
+    int32_t tStd;
+};
+
+// Explicit tStd on every span: a scheduled speed of 50..70 km/h with a few seconds over the
+// physical minimum, so tMin is physical and catch-up runs at up to 80 km/h (SPEC C1, C3).
+// Turnaround, depot, signal and k_slow stay at the LineConfig defaults.
+LineConfig lineOf(std::vector<std::string> names, std::initializer_list<SpanSpec> spans) {
     LineConfig line;
     line.stationNames = std::move(names);
-    line.spans.reserve(lengths.size());
-    for (double lengthM : lengths) {
+    line.spans.reserve(spans.size());
+    for (const SpanSpec& spec : spans) {
         SpanInput span;
-        span.lengthM = lengthM;
+        span.lengthM = spec.lengthM;
+        span.tStd = spec.tStd;
         line.spans.push_back(span);
     }
+    line.dwellMin = 30;
+    line.headwayMin = 90;
     return line;
 }
 
-// SPEC 12. Explicit tStd, so some spans are coefficient-limited and some are physical.
+// SPEC 12. Spans of 1.0..2.4 km at 51..63 km/h. The 712 s one-way running time keeps the
+// no-delay weekend on time at 20:00 (SPEC 14.1); 718..722 s misses a depot handover there.
 LineConfig trainingLine() {
-    LineConfig line = lineFromLengths({"Северная", "Полевая", "Заводская", "Университет",
-                                       "Центральная", "Рынок", "Парк", "Южная"},
-                                      {1100, 780, 1700, 950, 1500, 860, 1400});
-    const int32_t tStd[] = {120, 90, 130, 100, 110, 95, 125};
-    for (size_t i = 0; i < line.spans.size(); ++i) {
-        line.spans[i].tStd = tStd[i];
-    }
-    return line;
+    return lineOf(
+        {"Сосновая", "Липовая", "Мельничная", "Колокольная", "Торговая", "Ярмарочная", "Овражная",
+         "Тополиная"},
+        {{1450, 90}, {1820, 108}, {1300, 83}, {2150, 124}, {1600, 99}, {1040, 73}, {2380, 135}});
 }
 
-// Decision R7. Lengths where ⌈tStd/1.5⌉ ties ⌈t_phys⌉ alternate with coefficient-limited ones.
-// defaultStdRunTime never makes the physical minimum strictly tighter, so tStd is not set.
-LineConfig minimalLine() {
-    return lineFromLengths(
-        {"Пристань", "Берёзовая", "Слобода", "Ратуша", "Ярмарка", "Роща", "Застава"},
-        {400, 1200, 650, 2100, 800, 1500});
+// SPEC 12, lower bound of N.
+LineConfig shortLine() {
+    return lineOf({"Маячная", "Рыбачья", "Гончарная", "Кирпичная"},
+                  {{1700, 104}, {2260, 130}, {1380, 89}});
 }
 
-// Decision R7. Same binding mix as minimalLine, across 400..5000 m (SPEC 12, N = 20).
-LineConfig longLine() {
-    return lineFromLengths({"Озёрная",    "Каменная",      "Луговая",   "Прядильная", "Набережная",
-                            "Крепостная", "Вишнёвая",      "Мостовая",  "Губернская", "Ткацкая",
-                            "Садовая",    "Привокзальная", "Кузнечная", "Звёздная",   "Ремесленная",
-                            "Соборная",   "Холмистая",     "Граничная", "Портовая",   "Дальняя"},
-                           {4600, 4100, 3200, 2800, 1950, 1700, 1200, 900, 600, 500, 400, 800, 1050,
-                            1400, 1650, 2400, 3050, 4500, 5000});
+// SPEC 12. The two outer spans of 3.85 and 4.2 km run at 70 km/h; the rest at 53..63 km/h.
+LineConfig cityLine() {
+    return lineOf({"Кедровая", "Янтарная", "Сенокосная", "Пасечная", "Ветряная", "Часовая",
+                   "Ратушная", "Типографская", "Фонтанная", "Каретная", "Лодочная", "Затонная"},
+                  {{3850, 198},
+                   {1560, 98},
+                   {2040, 121},
+                   {1350, 87},
+                   {1780, 108},
+                   {1180, 80},
+                   {2290, 132},
+                   {1630, 101},
+                   {1920, 114},
+                   {1410, 90},
+                   {4200, 216}});
 }
 
 // SPEC 9.1 playback defaults. Fleet is the peak window, which does not depend on the value
@@ -112,9 +124,9 @@ SimParams defaultParams() {
 
 std::vector<Preset> builtinPresets() {
     return {
-        {"training-8", "Учебная, 8 станций", trainingParams()},
-        {"minimal-7", "Минимальная, 7 станций", paramsOf(minimalLine())},
-        {"long-20", "Длинная, 20 станций", paramsOf(longLine())},
+        {"metro-8", "Учебная, 8 станций", trainingParams()},
+        {"short-4", "Короткая, 4 станции", paramsOf(shortLine())},
+        {"metro-12", "Городская, 12 станций", paramsOf(cityLine())},
     };
 }
 

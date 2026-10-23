@@ -127,9 +127,9 @@ std::string windowField(int day, size_t index, const char* leaf) {
 
 void validateLine(const LineConfig& line, std::vector<ValidationIssue>& out) {
     const int64_t stationCount = static_cast<int64_t>(line.stationNames.size());
-    if (stationCount < 7 || stationCount > 20) {
+    if (stationCount < 4 || stationCount > 20) {
         addIssue(out, "line.stationNames", IssueCode::StationCountOutOfRange,
-                 "Число станций " + std::to_string(stationCount) + " вне диапазона 7…20");
+                 "Число станций " + std::to_string(stationCount) + " вне диапазона 4…20");
     }
 
     const int64_t spanCount = static_cast<int64_t>(line.spans.size());
