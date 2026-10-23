@@ -21,7 +21,7 @@ api::TrainUpdate train(int id, api::TrainMode mode, api::TrackEdge edge, api::Di
     return value;
 }
 
-api::ViewChunkPtr initialChunk() {
+api::ViewChunkPtr initialChunk(const api::LineConfig& line) {
     auto chunk = std::make_shared<api::ViewChunk>();
     chunk->seq = 0;
     chunk->kind = api::ChunkKind::Initial;
@@ -30,18 +30,22 @@ api::ViewChunkPtr initialChunk() {
 
     api::ViewDelta delta;
     delta.t = kStart;
+    const int lastStation = static_cast<int>(line.stationNames.size()) - 1;
     delta.trains = {
         train(0, api::TrainMode::Service, api::TrackEdge::Depot, api::Dir::I, 0, 0.0, 0.0),
-        train(1, api::TrainMode::Service, api::TrackEdge::Depot, api::Dir::II, 7, 0.0, 0.0),
+        train(1, api::TrainMode::Service, api::TrackEdge::Depot, api::Dir::II, lastStation, 0.0,
+              0.0),
         train(2, api::TrainMode::OnTime, api::TrackEdge::Span, api::Dir::I, 1, 0.35, 42.0),
         train(3, api::TrainMode::OnTime, api::TrackEdge::Platform, api::Dir::I, 2, 0.0, 0.0),
-        train(4, api::TrainMode::Service, api::TrackEdge::ToDeadEnd, api::Dir::I, 7, 0.4, 0.0),
+        train(4, api::TrainMode::Service, api::TrackEdge::ToDeadEnd, api::Dir::I, lastStation, 0.4,
+              0.0),
         train(5, api::TrainMode::Service, api::TrackEdge::FromDeadEnd, api::Dir::I, 0, 0.6, 0.0),
         train(6, api::TrainMode::Service, api::TrackEdge::ToDepot, api::Dir::II, 0, 0.2, 0.0),
-        train(7, api::TrainMode::Service, api::TrackEdge::FromDepot, api::Dir::II, 7, 0.8, 0.0),
+        train(7, api::TrainMode::Service, api::TrackEdge::FromDepot, api::Dir::II, lastStation,
+              0.8, 0.0),
     };
 
-    for (int station = 0; station < 8; ++station) {
+    for (int station = 0; station <= lastStation; ++station) {
         for (api::Dir dir : {api::Dir::I, api::Dir::II}) {
             api::BoardUpdate board;
             board.dir = dir;
@@ -144,8 +148,8 @@ api::RunInfo runInfo() {
     return info;
 }
 
-std::vector<api::ViewChunkPtr> viewChunks() {
-    return {initialChunk(), firstPlayChunk(), secondPlayChunk(), seekChunk()};
+std::vector<api::ViewChunkPtr> viewChunks(const api::LineConfig& line) {
+    return {initialChunk(line), firstPlayChunk(), secondPlayChunk(), seekChunk()};
 }
 
 api::SimSummary summary() {

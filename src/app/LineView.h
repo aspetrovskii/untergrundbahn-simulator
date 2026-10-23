@@ -57,6 +57,7 @@ private:
     std::map<int, TrainGraphics> trainItems_;
     std::map<int, api::TrainUpdate> trainStates_;
     std::map<int, api::SimTime> trainUpdateTimes_;
+    double minimumScale_ = 0.25;
 };
 
 } // namespace ubahn::app

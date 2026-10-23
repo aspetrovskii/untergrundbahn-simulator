@@ -29,7 +29,7 @@ LineEditor::LineEditor(QWidget* parent) : QWidget(parent) {
 
     auto* stationsGroup = new QGroupBox(tr("Станции и перегоны"), this);
     auto* stationsLayout = new QVBoxLayout(stationsGroup);
-    stationCount_ = makeSpinBox(7, 20, stationsGroup);
+    stationCount_ = makeSpinBox(4, 24, stationsGroup);
     stationCount_->setObjectName("stationCountSpin");
     auto* countForm = new QFormLayout;
     countForm->addRow(tr("Количество станций:"), stationCount_);
@@ -158,9 +158,9 @@ std::vector<std::string> LineEditor::inputErrors() const {
             bool timeOk = false;
             const double length = stations_->item(row, 1)->text().toDouble(&lengthOk);
             const int runTime = stations_->item(row, 2)->text().toInt(&timeOk);
-            if (!lengthOk || length < 400.0 || length > 5000.0) {
+            if (!lengthOk || length < 400.0 || length > 6500.0) {
                 errors.push_back("Длина перегона " + std::to_string(row + 1) +
-                                 " должна быть от 400 до 5000 м");
+                                 " должна быть от 400 до 6500 м");
             }
             if (!timeOk || runTime <= 0) {
                 errors.push_back("Время хода по перегону " + std::to_string(row + 1) +

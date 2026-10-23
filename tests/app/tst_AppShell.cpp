@@ -9,12 +9,14 @@
 #include "RuntimeScheduleEditor.h"
 #include "SetupDialog.h"
 #include "SummaryWidget.h"
+#include "api/Functions.h"
 #include "api/Version.h"
 
 #include <QComboBox>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QSpinBox>
 #include <QTest>
 #include <memory>
 
@@ -41,7 +43,7 @@ void AppShellTest::setupDialogShowsPresets() {
     auto* combo = dialog.findChild<QComboBox*>("presetCombo");
 
     QVERIFY(combo != nullptr);
-    QCOMPARE(combo->count(), 3);
+    QCOMPARE(combo->count(), static_cast<int>(ubahn::api::builtinPresets().size()));
     QCOMPARE(combo->currentIndex(), 0);
     QCOMPARE(dialog.selectedParams().line.stationNames.size(), std::size_t{8});
 }
@@ -53,12 +55,18 @@ void AppShellTest::setupDialogAcceptsSelection() {
     QVERIFY(combo != nullptr);
     QVERIFY(startButton != nullptr);
 
-    combo->setCurrentIndex(2);
+    const auto presets = ubahn::api::builtinPresets();
+    combo->setCurrentIndex(combo->count() - 1);
     QSignalSpy acceptedSpy(&dialog, &QDialog::accepted);
     QTest::mouseClick(startButton, Qt::LeftButton);
 
     QCOMPARE(acceptedSpy.count(), 1);
-    QCOMPARE(dialog.selectedParams().line.stationNames.size(), std::size_t{20});
+    QCOMPARE(dialog.selectedParams().line.stationNames.size(),
+             presets.back().params.line.stationNames.size());
+    auto* stationCount = dialog.findChild<QSpinBox*>("stationCountSpin");
+    QVERIFY(stationCount != nullptr);
+    QCOMPARE(stationCount->value(),
+             static_cast<int>(presets.back().params.line.stationNames.size()));
 }
 
 void AppShellTest::mainWindowHasLineView() {

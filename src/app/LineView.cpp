@@ -1,4 +1,5 @@
 #include "LineView.h"
+#include "api/Functions.h"
 
 #include <QBrush>
 #include <QColor>
@@ -18,6 +19,7 @@
 #include <QWheelEvent>
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <tuple>
 
 namespace ubahn::app {
@@ -26,12 +28,24 @@ namespace {
 constexpr double kSceneWidth = 1440.0;
 constexpr double kSceneHeight = 520.0;
 constexpr double kLineLeft = 220.0;
-constexpr double kLineWidth = 1000.0;
+constexpr double kReferenceLineWidth = 1000.0;
 constexpr double kTrackIY = 210.0;
 constexpr double kTrackIIY = 350.0;
 constexpr double kTerminalY = 280.0;
 constexpr double kTrainWidth = 36.0;
 constexpr double kTrainHeight = 20.0;
+
+double pixelsPerMeter() {
+    const auto presets = api::builtinPresets();
+    if (presets.empty()) {
+        return 0.0;
+    }
+    const auto& spans = presets.front().params.line.spans;
+    const double referenceLength = std::accumulate(
+        spans.begin(), spans.end(), 0.0,
+        [](double length, const api::SpanInput& span) { return length + span.lengthM; });
+    return referenceLength > 0.0 ? kReferenceLineWidth / referenceLength : 0.0;
+}
 
 QColor modeColor(api::TrainMode mode) {
     switch (mode) {
@@ -101,7 +115,7 @@ LineView::LineView(QWidget* parent) : QGraphicsView(parent), scene_(new QGraphic
     setDragMode(QGraphicsView::ScrollHandDrag);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorViewCenter);
-    setBackgroundBrush(QColor(248, 248, 248));
+    setBackgroundBrush(Qt::white);
     scene_->setSceneRect(0.0, 0.0, kSceneWidth, kSceneHeight);
 }
 
@@ -121,13 +135,19 @@ void LineView::setLine(const api::LineConfig& line) {
         return;
     }
 
+    const double scale = pixelsPerMeter();
+    if (scale <= 0.0) {
+        return;
+    }
+
     double passedLength = 0.0;
     stationPositions_.push_back(kLineLeft);
     for (const auto& span : line_.spans) {
         passedLength += span.lengthM;
-        stationPositions_.push_back(kLineLeft + kLineWidth * passedLength / totalLength);
+        stationPositions_.push_back(kLineLeft + scale * passedLength);
     }
 
+    scene_->setSceneRect(0.0, 0.0, stationPositions_.back() + kLineLeft, kSceneHeight);
     drawStaticLine();
     QTimer::singleShot(0, this, &LineView::fitToLine);
 }
@@ -159,8 +179,8 @@ void LineView::setModelTime(double modelTime) {
 
 void LineView::fitToLine() {
     if (!scene_->items().empty()) {
-        fitInView(scene_->itemsBoundingRect().adjusted(-30.0, -30.0, 30.0, 30.0),
-                  Qt::KeepAspectRatio);
+        fitInView(scene_->sceneRect(), Qt::KeepAspectRatio);
+        minimumScale_ = transform().m11() * 0.5;
     }
 }
 
@@ -192,7 +212,7 @@ void LineView::mousePressEvent(QMouseEvent* event) {
 void LineView::wheelEvent(QWheelEvent* event) {
     const double factor = event->angleDelta().y() > 0 ? 1.15 : 1.0 / 1.15;
     const double nextScale = transform().m11() * factor;
-    if (nextScale >= 0.25 && nextScale <= 8.0) {
+    if (nextScale >= minimumScale_ && nextScale <= 8.0) {
         scale(factor, factor);
     }
     event->accept();
@@ -279,7 +299,10 @@ void LineView::updateTrainAppearance(const api::TrainUpdate& train) {
     graphics.number->setPos(-graphics.number->boundingRect().width() / 2.0,
                            -graphics.number->boundingRect().height() / 2.0);
     graphics.speed->setText(tr("%1 км/ч").arg(train.speedKmh, 0, 'f', 0));
-    graphics.speed->setPos(kTrainWidth / 2.0 + 5.0, -graphics.speed->boundingRect().height() / 2.0);
+    const auto speedBounds = graphics.speed->boundingRect();
+    graphics.speed->setTransformOriginPoint(speedBounds.bottomLeft());
+    graphics.speed->setRotation(-35.0);
+    graphics.speed->setPos(-8.0, -kTrainHeight / 2.0 - 8.0 - speedBounds.height());
 
     const QString description = trainDescription(train);
     graphics.body->setToolTip(description);

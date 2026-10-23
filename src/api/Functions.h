@@ -10,7 +10,7 @@
 
 namespace ubahn::api {
 
-std::vector<Preset> builtinPresets(); // SPEC 12; first is "training-8"
+std::vector<Preset> builtinPresets(); // SPEC 12; first is "metro-8"
 SimParams defaultParams();
 ScheduleConfig defaultSchedule(); // SPEC 6.3
 
