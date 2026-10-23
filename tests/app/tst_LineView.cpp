@@ -1,9 +1,11 @@
 #include "LineView.h"
+#include "api/Functions.h"
 
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsSimpleTextItem>
 #include <QTest>
+#include <QWheelEvent>
 #include <cmath>
 #include <string>
 
@@ -39,6 +41,8 @@ private slots:
     void supportsAllowedStationCounts_data();
     void supportsAllowedStationCounts();
     void stationDistancesAreProportional();
+    void usesTrainingPresetAsFixedDistanceScale();
+    void fitsAndZoomsOutForLongestLine();
     void positionsTrainOnBothDirections();
     void positionsServiceEdges();
     void animatesUsingLatestVelocityWithoutChangingLabels();
@@ -71,6 +75,48 @@ void LineViewTest::stationDistancesAreProportional() {
     const double firstDistance = view.stationX(1) - view.stationX(0);
     const double secondDistance = view.stationX(2) - view.stationX(1);
     QVERIFY(std::abs(secondDistance / firstDistance - 2.0) < 0.001);
+}
+
+void LineViewTest::usesTrainingPresetAsFixedDistanceScale() {
+    ubahn::app::LineView view;
+    const auto reference = ubahn::api::builtinPresets().front().params.line;
+    view.setLine(reference);
+    const double referenceSpan = view.stationX(1) - view.stationX(0);
+    const double referenceWidth = view.stationX(7) - view.stationX(0);
+    QVERIFY(std::abs(referenceWidth - 1000.0) < 0.001);
+
+    auto longer = reference;
+    longer.spans[0].lengthM *= 2.0;
+    view.setLine(longer);
+    QVERIFY(std::abs((view.stationX(1) - view.stationX(0)) - 2.0 * referenceSpan) < 0.001);
+    QVERIFY(std::abs((view.stationX(7) - view.stationX(0)) -
+                     (referenceWidth + referenceSpan)) < 0.001);
+    QVERIFY(view.sceneRect().right() > view.stationX(7) + 155.0);
+}
+
+void LineViewTest::fitsAndZoomsOutForLongestLine() {
+    ubahn::app::LineView view;
+    auto line = lineWithStations(20);
+    for (auto& span : line.spans) {
+        span.lengthM = 5000.0;
+    }
+    view.resize(800, 500);
+    view.setLine(line);
+    view.show();
+    view.fitToLine();
+
+    const double fittedScale = view.transform().m11();
+    QVERIFY(fittedScale < 0.25);
+    for (int step = 0; step < 30; ++step) {
+        QWheelEvent wheel(QPointF(400, 250), QPointF(400, 250), QPoint(), QPoint(0, -120),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(view.viewport(), &wheel);
+    }
+    QVERIFY(view.transform().m11() < fittedScale);
+    const int left = view.mapFromScene(QPointF(view.stationX(0), 210)).x();
+    const int right = view.mapFromScene(QPointF(view.stationX(19), 210)).x();
+    QVERIFY(left >= 0);
+    QVERIFY(right < view.viewport()->width());
 }
 
 void LineViewTest::positionsTrainOnBothDirections() {
