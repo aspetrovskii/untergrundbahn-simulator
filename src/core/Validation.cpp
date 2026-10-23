@@ -127,9 +127,9 @@ std::string windowField(int day, size_t index, const char* leaf) {
 
 void validateLine(const LineConfig& line, std::vector<ValidationIssue>& out) {
     const int64_t stationCount = static_cast<int64_t>(line.stationNames.size());
-    if (stationCount < 4 || stationCount > 20) {
+    if (stationCount < 4 || stationCount > 24) {
         addIssue(out, "line.stationNames", IssueCode::StationCountOutOfRange,
-                 "Число станций " + std::to_string(stationCount) + " вне диапазона 4…20");
+                 "Число станций " + std::to_string(stationCount) + " вне диапазона 4…24");
     }
 
     const int64_t spanCount = static_cast<int64_t>(line.spans.size());
@@ -141,7 +141,7 @@ void validateLine(const LineConfig& line, std::vector<ValidationIssue>& out) {
 
     for (size_t i = 0; i < line.spans.size(); ++i) {
         const SpanInput& span = line.spans[i];
-        checkDouble(out, spanField(i, "lengthM"), "Длина перегона", "м", span.lengthM, 400, 5000);
+        checkDouble(out, spanField(i, "lengthM"), "Длина перегона", "м", span.lengthM, 400, 6500);
         // physMinRunTime of a non-positive length is not a meaningful minimum (tPhys goes NaN).
         if (span.tStd.has_value() && std::isfinite(span.lengthM) && span.lengthM > 0.0) {
             const int32_t phys = physMinRunTime(span.lengthM);

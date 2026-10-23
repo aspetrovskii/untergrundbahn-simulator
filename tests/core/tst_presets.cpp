@@ -127,23 +127,29 @@ private slots:
     void trainingAnalysisMatchesBe04();
     void shortLineMatches();
     void cityLineMatches();
+    void moscowLinesMatch();
+    void moscowPeakHeadway();
     void spansRunAtMetroSpeed();
 };
 
 void PresetsTest::orderIdsAndSizes() {
     const std::vector<ubahn::api::Preset> presets = ubahn::api::builtinPresets();
-    QCOMPARE(presets.size(), size_t{3});
+    QCOMPARE(presets.size(), size_t{5});
 
     QCOMPARE(QString::fromStdString(presets[0].id), QString("metro-8"));
     QCOMPARE(QString::fromStdString(presets[1].id), QString("short-4"));
     QCOMPARE(QString::fromStdString(presets[2].id), QString("metro-12"));
+    QCOMPARE(QString::fromStdString(presets[3].id), QString("moscow-blue"));
+    QCOMPARE(QString::fromStdString(presets[4].id), QString("moscow-green"));
     QCOMPARE(QString::fromStdString(presets[0].name), QString("Учебная, 8 станций"));
     QCOMPARE(QString::fromStdString(presets[1].name), QString("Короткая, 4 станции"));
     QCOMPARE(QString::fromStdString(presets[2].name), QString("Городская, 12 станций"));
+    QCOMPARE(QString::fromStdString(presets[3].name), QString("Синяя, 22 станции"));
+    QCOMPARE(QString::fromStdString(presets[4].name), QString("Зелёная, 24 станции"));
 
-    const int stationCount[] = {8, 4, 12};
-    const int fleet[] = {25, 13, 41};
-    for (int i = 0; i < 3; ++i) {
+    const int stationCount[] = {8, 4, 12, 22, 24};
+    const int fleet[] = {25, 13, 41, 60, 61};
+    for (int i = 0; i < 5; ++i) {
         const ubahn::api::SimParams& params = presets[static_cast<size_t>(i)].params;
         QCOMPARE(static_cast<int>(params.line.stationNames.size()), stationCount[i]);
         QCOMPARE(static_cast<int>(params.line.spans.size()), stationCount[i] - 1);
@@ -232,6 +238,77 @@ void PresetsTest::shortLineMatches() {
                {104, 130, 89});
 }
 
+void PresetsTest::moscowLinesMatch() {
+    expectLine(ubahn::api::builtinPresets().at(3).params.line, {"Пятницкое шоссе",
+                                                                "Митино",
+                                                                "Волоколамская",
+                                                                "Мякинино",
+                                                                "Строгино",
+                                                                "Крылатское",
+                                                                "Молодёжная",
+                                                                "Кунцевская",
+                                                                "Славянский бульвар",
+                                                                "Парк Победы",
+                                                                "Киевская",
+                                                                "Смоленская",
+                                                                "Арбатская",
+                                                                "Площадь Революции",
+                                                                "Курская",
+                                                                "Бауманская",
+                                                                "Электрозаводская",
+                                                                "Семёновская",
+                                                                "Партизанская",
+                                                                "Измайловская",
+                                                                "Первомайская",
+                                                                "Щёлковская"},
+               {1440, 1720, 1180, 3010, 6470, 1940, 2340, 1920, 3290, 3200, 1100,
+                1640, 1150, 2330, 2210, 1760, 1110, 1970, 1950, 1740, 1640},
+               {90, 102, 78,  160, 333, 112, 130, 111, 173, 169, 74,
+                99, 76,  130, 124, 104, 75,  113, 112, 103, 99});
+    expectLine(ubahn::api::builtinPresets().at(4).params.line,
+               {"Ховрино",       "Беломорская",   "Речной вокзал",     "Водный стадион",
+                "Войковская",    "Сокол",         "Аэропорт",          "Динамо",
+                "Белорусская",   "Маяковская",    "Тверская",          "Театральная",
+                "Новокузнецкая", "Павелецкая",    "Автозаводская",     "Технопарк",
+                "Коломенская",   "Каширская",     "Кантемировская",    "Царицыно",
+                "Орехово",       "Домодедовская", "Красногвардейская", "Алма-Атинская"},
+               {1690, 1260, 1820, 2470, 1940, 1260, 1980, 2160, 1020, 920,  1150, 1910,
+                1410, 2920, 1650, 1710, 2820, 2590, 1790, 2020, 1750, 1650, 3090},
+               {101, 81,  107, 136, 112, 81,  114, 122, 71,  66, 76, 111,
+                88,  156, 99,  102, 152, 141, 105, 116, 103, 99, 164});
+}
+
+void PresetsTest::moscowPeakHeadway() {
+    const ubahn::api::ScheduleConfig base = ubahn::api::defaultSchedule();
+    for (const char* id : {"moscow-blue", "moscow-green"}) {
+        const ubahn::api::Preset* preset = nullptr;
+        for (const ubahn::api::Preset& item : ubahn::api::builtinPresets()) {
+            if (item.id == id) {
+                preset = &item;
+            }
+        }
+        QVERIFY(preset != nullptr);
+        const ubahn::api::ScheduleConfig& schedule = preset->params.schedule;
+        QCOMPARE(schedule.delayMin, base.delayMin);
+        QCOMPARE(schedule.delayMax, base.delayMax);
+        for (int day = 0; day < 7; ++day) {
+            const std::vector<ubahn::api::Window>& windows =
+                schedule.days[static_cast<size_t>(day)].windows;
+            const std::vector<ubahn::api::Window>& original =
+                base.days[static_cast<size_t>(day)].windows;
+            QCOMPARE(windows.size(), original.size());
+            for (size_t i = 0; i < windows.size(); ++i) {
+                const int32_t headway = day < 5 && (i == 1 || i == 3) ? 150 : original[i].headway;
+                QCOMPARE(windows[i].headway, headway);
+                QCOMPARE(windows[i].fromTod, original[i].fromTod);
+                QCOMPARE(windows[i].toTod, original[i].toTod);
+                QCOMPARE(windows[i].dwell, original[i].dwell);
+                QCOMPARE(windows[i].delayProb, original[i].delayProb);
+            }
+        }
+    }
+}
+
 void PresetsTest::cityLineMatches() {
     expectLine(ubahn::api::builtinPresets().at(2).params.line,
                {"Кедровая", "Янтарная", "Сенокосная", "Пасечная", "Ветряная", "Часовая", "Ратушная",
@@ -253,16 +330,23 @@ void PresetsTest::spansRunAtMetroSpeed() {
             QVERIFY2(span.tStd.has_value(), where.constData());
             QCOMPARE(std::fmod(span.lengthM, 10.0), 0.0);
             const double speed = speedKmh(span);
-            QVERIFY2(speed >= 50.0 && speed <= 70.0 + 1e-9, where.constData());
-            if (speed > 66.0) {
+            const int32_t phys = ubahn::api::physMinRunTime(span.lengthM);
+            QVERIFY2(*span.tStd >= phys, where.constData());
+            // A span that cannot average 50 km/h keeps the physical minimum. Every other span
+            // stays in 50..70, and 70 km/h is only scheduled from about 3.5 km.
+            if (speed < 50.0) {
+                QCOMPARE(*span.tStd, phys);
+            } else {
+                QVERIFY2(speed <= 70.0 + 1e-9, where.constData());
+            }
+            if (speed > 69.0) {
                 ++fastSpans;
                 QVERIFY2(span.lengthM >= 3500.0, where.constData());
             }
-            const int32_t phys = ubahn::api::physMinRunTime(span.lengthM);
-            QVERIFY2(*span.tStd >= phys, where.constData());
             QCOMPARE(ubahn::api::minRunTime(line, static_cast<int>(i)), phys);
         }
-        QCOMPARE(fastSpans, preset.id == "metro-12" ? 2 : 0);
+        const int expectedFast = preset.id == "metro-12" ? 2 : preset.id == "moscow-blue" ? 1 : 0;
+        QCOMPARE(fastSpans, expectedFast);
     }
 }
 

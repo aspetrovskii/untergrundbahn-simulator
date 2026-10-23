@@ -49,8 +49,9 @@ inline api::LineConfig makeLineConfig(const std::vector<double>& lengths,
     return cfg;
 }
 
-// SPEC 14.5 load, N = 20: longer than any preset. 400..5000 m spans with the default tStd,
-// the line the performance baselines were recorded on. Fleet is the minimum for all windows.
+// SPEC 14.5 load. N = 20 on purpose: the baselines were recorded on this fixture, not on the
+// longer Moscow presets. 400..5000 m spans with the default tStd. Fleet is the minimum for all
+// windows.
 inline api::SimParams twentyStationParams() {
     api::SimParams params;
     params.line = makeLineConfig({4600, 4100, 3200, 2800, 1950, 1700, 1200, 900, 600, 500, 400, 800,

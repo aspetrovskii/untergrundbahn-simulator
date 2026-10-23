@@ -41,12 +41,12 @@ enum class TrackEdge : uint8_t {
 // ---- Input parameters (SPEC 9.1) ----
 
 struct SpanInput {
-    double lengthM = 0;          // 400..5000
+    double lengthM = 0;          // 400..6500
     std::optional<int32_t> tStd; // empty: defaultStdRunTime(lengthM); otherwise >= physMinRunTime
 };
 
 struct LineConfig {
-    std::vector<std::string> stationNames; // N = 4..20, UTF-8
+    std::vector<std::string> stationNames; // N = 4..24, UTF-8
     std::vector<SpanInput> spans;          // N-1; spans[i] joins stations i and i+1, both tracks
     int32_t dwellMin = 40;                 // C5, 30..180
     int32_t headwayMin = 65;               // C6, 30..300
@@ -96,7 +96,7 @@ struct SimParams {
 };
 
 struct Preset {
-    std::string id; // "metro-8", "short-4", "metro-12"
+    std::string id; // "metro-8", "short-4", "metro-12", "moscow-blue", "moscow-green"
     std::string name;
     SimParams params;
 };

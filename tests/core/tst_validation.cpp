@@ -201,7 +201,7 @@ void ValidationTest::acceptedBounds_data() {
     QTest::addColumn<int>("kind");
 
     QTest::newRow("length 400") << 1;
-    QTest::newRow("length 5000") << 2;
+    QTest::newRow("length 6500") << 2;
     QTest::newRow("fleet 2") << 3;
     QTest::newRow("fleet 200") << 4;
     QTest::newRow("dwellMin 30") << 5;
@@ -235,7 +235,7 @@ void ValidationTest::acceptedBounds_data() {
     QTest::newRow("rate 0") << 33;
     QTest::newRow("rate 1000") << 34;
     QTest::newRow("N 4") << 35;
-    QTest::newRow("N 20") << 36;
+    QTest::newRow("N 24") << 36;
     QTest::newRow("omitted tStd") << 37;
     QTest::newRow("probability 0 and 1") << 38;
     QTest::newRow("period start 0") << 39;
@@ -255,8 +255,8 @@ void ValidationTest::acceptedBounds() {
         break;
     case 2:
         for (ubahn::api::SpanInput& span : params.line.spans) {
-            span.lengthM = 5000.0;
-            span.tStd = ubahn::api::physMinRunTime(5000.0);
+            span.lengthM = 6500.0;
+            span.tStd = ubahn::api::physMinRunTime(6500.0);
         }
         break;
     case 3:
@@ -364,7 +364,7 @@ void ValidationTest::acceptedBounds() {
         params.line = lineOf(4);
         break;
     case 36:
-        params.line = lineOf(20);
+        params.line = lineOf(24);
         break;
     case 37:
         params.line.spans[0].tStd = std::nullopt;
@@ -438,8 +438,8 @@ void ValidationTest::rejectedRanges() {
     };
     static const Expect kExpect[] = {
         {nullptr, nullptr},
-        {"line.spans[2].lengthM", "Длина перегона 300 м вне диапазона 400…5000 м"},
-        {"line.spans[2].lengthM", "Длина перегона 5001 м вне диапазона 400…5000 м"},
+        {"line.spans[2].lengthM", "Длина перегона 300 м вне диапазона 400…6500 м"},
+        {"line.spans[2].lengthM", "Длина перегона 6501 м вне диапазона 400…6500 м"},
         {"line.fleetSize", "Размер парка 1 вне диапазона 2…200"},
         {"line.fleetSize", "Размер парка 201 вне диапазона 2…200"},
         {"line.dwellMin", "Минимальная стоянка 29 с вне диапазона 30…180 с"},
@@ -475,7 +475,7 @@ void ValidationTest::rejectedRanges() {
         params.line.spans[2].lengthM = 300.0;
         break;
     case 2:
-        params.line.spans[2].lengthM = 5001.0;
+        params.line.spans[2].lengthM = 6501.0;
         params.line.spans[2].tStd = 100000;
         break;
     case 3:
@@ -578,16 +578,16 @@ void ValidationTest::stationCount() {
     QCOMPARE(QString::fromStdString(lowIssues[0].field), QString("line.stationNames"));
     QCOMPARE(lowIssues[0].code, ubahn::api::IssueCode::StationCountOutOfRange);
     QCOMPARE(QString::fromStdString(lowIssues[0].message),
-             QString("Число станций 3 вне диапазона 4…20"));
+             QString("Число станций 3 вне диапазона 4…24"));
 
     ubahn::api::SimParams high = looseParams();
-    high.line = lineOf(21);
+    high.line = lineOf(25);
     const std::vector<ubahn::api::ValidationIssue> highIssues = ubahn::api::validate(high);
     QCOMPARE(highIssues.size(), size_t{1});
     QCOMPARE(QString::fromStdString(highIssues[0].field), QString("line.stationNames"));
     QCOMPARE(highIssues[0].code, ubahn::api::IssueCode::StationCountOutOfRange);
     QCOMPARE(QString::fromStdString(highIssues[0].message),
-             QString("Число станций 21 вне диапазона 4…20"));
+             QString("Число станций 25 вне диапазона 4…24"));
 }
 
 void ValidationTest::emptyLineReportsCountAndSpans() {
@@ -937,7 +937,7 @@ void ValidationTest::nonFiniteValues() {
     QCOMPARE(issues[0].code, ubahn::api::IssueCode::ValueOutOfRange);
     QCOMPARE(QString::fromStdString(issues[0].field), QString("line.spans[0].lengthM"));
     QCOMPARE(QString::fromStdString(issues[0].message),
-             QString("Длина перегона nan м вне диапазона 400…5000 м"));
+             QString("Длина перегона nan м вне диапазона 400…6500 м"));
 
     params = looseParams();
     params.line.kSlow = std::numeric_limits<double>::quiet_NaN();

@@ -88,15 +88,80 @@ LineConfig cityLine() {
 
 // SPEC 9.1 playback defaults. Fleet is the peak window, which does not depend on the value
 // passed in (ScheduleAnalysis::minFleetForAllWindows).
-SimParams paramsOf(LineConfig line) {
+SimParams paramsOf(LineConfig line, ScheduleConfig schedule) {
     SimParams params;
     params.line = std::move(line);
-    params.schedule = defaultSchedule();
+    params.schedule = std::move(schedule);
     params.period = {kOpenTod, kOpenTod + 6 * kHour};
     params.stepSec = 60;
     params.rate = 1.0;
     params.line.fleetSize = analyze(params.line, params.schedule).minFleetForAllWindows;
     return params;
+}
+
+SimParams paramsOf(LineConfig line) {
+    return paramsOf(std::move(line), defaultSchedule());
+}
+
+// Same seven-day windows as defaultSchedule. The two weekday peaks are 150 s, so the
+// 120 s dead-end turnaround has slack.
+ScheduleConfig moscowSchedule() {
+    ScheduleConfig schedule = defaultSchedule();
+    for (int day = 0; day < 5; ++day) {
+        std::vector<Window>& windows = schedule.days[static_cast<size_t>(day)].windows;
+        windows[1].headway = 150;
+        windows[3].headway = 150;
+    }
+    return schedule;
+}
+
+// Arbatsko-Pokrovskaya, October 2026, Pyatnitskoye Shosse to Shchyolkovskaya. Lengths are
+// wiki.nashtransport.ru chainage rounded to 10 m. Arbatskaya to Ploshchad Revolyutsii is the
+// 3.9 km section minus the other two chainage spans: the piket jumps at Ploshchad Revolyutsii.
+// Strogino to Krylatskoye is scheduled at 70 km/h; every shorter span is two seconds over t_phys.
+LineConfig blueLine() {
+    return lineOf({"Пятницкое шоссе",
+                   "Митино",
+                   "Волоколамская",
+                   "Мякинино",
+                   "Строгино",
+                   "Крылатское",
+                   "Молодёжная",
+                   "Кунцевская",
+                   "Славянский бульвар",
+                   "Парк Победы",
+                   "Киевская",
+                   "Смоленская",
+                   "Арбатская",
+                   "Площадь Революции",
+                   "Курская",
+                   "Бауманская",
+                   "Электрозаводская",
+                   "Семёновская",
+                   "Партизанская",
+                   "Измайловская",
+                   "Первомайская",
+                   "Щёлковская"},
+                  {{1440, 90},  {1720, 102}, {1180, 78},  {3010, 160}, {6470, 333}, {1940, 112},
+                   {2340, 130}, {1920, 111}, {3290, 173}, {3200, 169}, {1100, 74},  {1640, 99},
+                   {1150, 76},  {2330, 130}, {2210, 124}, {1760, 104}, {1110, 75},  {1970, 113},
+                   {1950, 112}, {1740, 103}, {1640, 99}});
+}
+
+// Zamoskvoretskaya, October 2026, Khovrino to Alma-Atinskaya, same chainage source.
+// Khovrino to Belomorskaya is the 2.94 km section minus the Belomorskaya chainage span.
+// Tverskaya to Teatralnaya is the 8.5 km section minus the chainage up to Tverskaya.
+LineConfig greenLine() {
+    return lineOf({"Ховрино",       "Беломорская",   "Речной вокзал",     "Водный стадион",
+                   "Войковская",    "Сокол",         "Аэропорт",          "Динамо",
+                   "Белорусская",   "Маяковская",    "Тверская",          "Театральная",
+                   "Новокузнецкая", "Павелецкая",    "Автозаводская",     "Технопарк",
+                   "Коломенская",   "Каширская",     "Кантемировская",    "Царицыно",
+                   "Орехово",       "Домодедовская", "Красногвардейская", "Алма-Атинская"},
+                  {{1690, 101}, {1260, 81},  {1820, 107}, {2470, 136}, {1940, 112}, {1260, 81},
+                   {1980, 114}, {2160, 122}, {1020, 71},  {920, 66},   {1150, 76},  {1910, 111},
+                   {1410, 88},  {2920, 156}, {1650, 99},  {1710, 102}, {2820, 152}, {2590, 141},
+                   {1790, 105}, {2020, 116}, {1750, 103}, {1650, 99},  {3090, 164}});
 }
 
 SimParams trainingParams() {
@@ -127,6 +192,8 @@ std::vector<Preset> builtinPresets() {
         {"metro-8", "Учебная, 8 станций", trainingParams()},
         {"short-4", "Короткая, 4 станции", paramsOf(shortLine())},
         {"metro-12", "Городская, 12 станций", paramsOf(cityLine())},
+        {"moscow-blue", "Синяя, 22 станции", paramsOf(blueLine(), moscowSchedule())},
+        {"moscow-green", "Зелёная, 24 станции", paramsOf(greenLine(), moscowSchedule())},
     };
 }
 
