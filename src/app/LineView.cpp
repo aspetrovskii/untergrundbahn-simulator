@@ -303,7 +303,10 @@ void LineView::updateTrainAppearance(const api::TrainUpdate& train) {
     graphics.number->setPos(-graphics.number->boundingRect().width() / 2.0,
                            -graphics.number->boundingRect().height() / 2.0);
     graphics.speed->setText(tr("%1 км/ч").arg(train.speedKmh, 0, 'f', 0));
-    graphics.speed->setPos(kTrainWidth / 2.0 + 5.0, -graphics.speed->boundingRect().height() / 2.0);
+    const auto speedBounds = graphics.speed->boundingRect();
+    graphics.speed->setTransformOriginPoint(speedBounds.bottomLeft());
+    graphics.speed->setRotation(-35.0);
+    graphics.speed->setPos(-8.0, -kTrainHeight / 2.0 - 8.0 - speedBounds.height());
 
     const QString description = trainDescription(train);
     graphics.body->setToolTip(description);

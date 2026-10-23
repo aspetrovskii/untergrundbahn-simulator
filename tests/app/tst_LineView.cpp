@@ -227,6 +227,13 @@ void LineViewTest::animatesUsingLatestVelocityWithoutChangingLabels() {
     }
     QVERIFY(labels.contains(QString("4 →Д")));
     QVERIFY(labels.contains(QString("18 км/ч")));
+    for (auto* child : body->childItems()) {
+        auto* text = qgraphicsitem_cast<QGraphicsSimpleTextItem*>(child);
+        if (text->text() == "18 км/ч") {
+            QCOMPARE(text->rotation(), -35.0);
+            QVERIFY(text->pos().y() + text->boundingRect().height() < body->rect().top());
+        }
+    }
 }
 
 QTEST_MAIN(LineViewTest)
